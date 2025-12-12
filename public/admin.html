@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Captive Portal Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    
+    .tab-btn {
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      border-color: #667eea;
+      color: #667eea;
+      background: rgba(102, 126, 234, 0.05);
+    }
+    
+    .stat-card {
+      transition: all 0.2s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-2px);
+    }
+    
+    .action-btn {
+      transition: all 0.2s ease;
+    }
+    .action-btn:hover {
+      transform: scale(1.05);
+    }
+    
+    .table-row {
+      transition: background 0.15s ease;
+    }
+    .table-row:hover {
+      background: rgba(102, 126, 234, 0.05);
+    }
+    
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+    }
+    
+    .badge-online {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .badge-offline {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+    .badge-phone {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .badge-other {
+      background: #f3f4f6;
+      color: #374151;
+    }
+    
+    .refresh-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-dot 2s infinite;
+    }
+    
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .modal-overlay {
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+    
+    .loading-spinner {
+      border: 2px solid rgba(102, 126, 234, 0.2);
+      border-top-color: #667eea;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 0.8s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <!-- Header -->
+  <header class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-xl font-bold text-gray-800">Captive Portal Admin</h1>
+            <p class="text-sm text-gray-500">Manage WiFi access requests</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-sm text-gray-500">
+          <div class="refresh-indicator"></div>
+          <span>Auto-refresh: <span id="refresh-countdown">5</span>s</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+      <!-- Pending -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">Pending Requests</p>
+            <p id="stat-pending" class="text-3xl font-bold text-amber-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Approved -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">Authenticated Users</p>
+            <p id="stat-approved" class="text-3xl font-bold text-green-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Denied -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">Rejected Users</p>
+            <p id="stat-denied" class="text-3xl font-bold text-red-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tracked -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">Tracked Phones</p>
+            <p id="stat-tracked" class="text-3xl font-bold text-blue-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- People -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">People</p>
+            <p id="stat-people" class="text-3xl font-bold text-purple-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Unknown MACs -->
+      <div class="stat-card bg-white rounded-xl shadow-sm border p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-500">Unknown MACs</p>
+            <p id="stat-unknown" class="text-3xl font-bold text-gray-500 mt-1">0</p>
+          </div>
+          <div class="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <div class="border-b">
+        <nav class="flex -mb-px overflow-x-auto">
+          <button data-tab="pending" class="tab-btn active px-6 py-4 text-sm font-medium border-b-2 border-transparent whitespace-nowrap">
+            Pending Requests
+            <span id="tab-pending-count" class="ml-2 bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full text-xs">0</span>
+          </button>
+          <button data-tab="people" class="tab-btn px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap">
+            👥 People
+            <span id="tab-people-count" class="ml-2 bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full text-xs">0</span>
+          </button>
+          <button data-tab="authenticated" class="tab-btn px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap">
+            Authenticated Users
+          </button>
+          <button data-tab="rejected" class="tab-btn px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap">
+            Rejected Users
+          </button>
+          <button data-tab="tracked" class="tab-btn px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap">
+            Tracked Devices
+          </button>
+          <button data-tab="unknown" class="tab-btn px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap">
+            Unknown MACs
+            <span id="tab-unknown-count" class="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">0</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Tab Content -->
+      <div id="tab-content" class="p-6">
+        <!-- Content loaded dynamically -->
+        <div id="loading-state" class="flex items-center justify-center py-12">
+          <div class="loading-spinner"></div>
+          <span class="ml-3 text-gray-500">Loading...</span>
+        </div>
+
+        <div id="empty-state" class="hidden text-center py-12">
+          <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+          </svg>
+          <p id="empty-message" class="text-gray-500">No items to display</p>
+        </div>
+
+        <div id="data-table" class="hidden overflow-x-auto">
+          <table class="w-full">
+            <thead id="table-head">
+              <!-- Dynamic headers -->
+            </thead>
+            <tbody id="table-body">
+              <!-- Dynamic rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Confirmation Modal -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50">
+    <div class="modal-overlay absolute inset-0"></div>
+    <div class="relative flex items-center justify-center min-h-screen p-4">
+      <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative">
+        <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-2">Confirm Action</h3>
+        <p id="modal-message" class="text-gray-500 mb-6">Are you sure you want to proceed?</p>
+        <div class="flex gap-3 justify-end">
+          <button id="modal-cancel" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">
+            Cancel
+          </button>
+          <button id="modal-confirm" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

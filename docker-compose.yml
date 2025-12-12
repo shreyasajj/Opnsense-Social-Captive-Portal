@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  captive-portal:
+    build: .
+    container_name: captive-portal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Persist SQLite database
+      - ./data:/app/data
+    networks:
+      - captive-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/admin/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  captive-network:
+    driver: bridge

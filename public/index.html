@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WiFi Access Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      min-height: 100vh;
+    }
+
+    .card {
+      backdrop-filter: blur(10px);
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .btn-google { background: #4285F4; transition: all 0.2s ease; }
+    .btn-google:hover { background: #357abd; transform: translateY(-1px); }
+
+    .btn-phone {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: all 0.2s ease;
+    }
+    .btn-phone:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .input-field { transition: all 0.2s ease; }
+    .input-field:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    @keyframes bounce-in {
+      0% { transform: scale(0); opacity: 0; }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+
+    .success-icon { animation: bounce-in 0.5s ease-out forwards; }
+    .error-icon { animation: bounce-in 0.5s ease-out forwards; }
+    .pulse-ring { animation: pulse-ring 1s ease-out infinite; }
+
+    .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .loading-spinner {
+      border: 3px solid rgba(102, 126, 234, 0.2);
+      border-top-color: #667eea;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="gradient-bg flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div id="main-card" class="card rounded-2xl shadow-2xl p-8">
+      <div class="text-center mb-8">
+        <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
+          <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-800">WiFi Access Portal</h1>
+        <p class="text-gray-500 mt-2">Sign in to connect to the network</p>
+      </div>
+
+      <div id="login-options" class="space-y-4">
+        <a id="google-btn" href="#" class="btn-google w-full py-3 px-4 rounded-xl text-white font-medium flex items-center justify-center gap-3 shadow-lg">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#fff"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff"/>
+          </svg>
+          Continue with Google
+        </a>
+
+        <div class="relative">
+          <div class="absolute inset-0 flex items-center">
+            <div class="w-full border-t border-gray-200"></div>
+          </div>
+          <div class="relative flex justify-center text-sm">
+            <span class="px-4 bg-white text-gray-500">or</span>
+          </div>
+        </div>
+
+        <button id="phone-btn" class="btn-phone w-full py-3 px-4 rounded-xl text-white font-medium flex items-center justify-center gap-3 shadow-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          </svg>
+          Login with Phone + Birthdate
+        </button>
+      </div>
+
+      <div id="phone-form" class="hidden fade-in">
+        <button id="back-btn" class="flex items-center text-gray-500 hover:text-gray-700 mb-6">
+          <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+            <input type="tel" id="phone-input" placeholder="+1 (555) 000-0000"
+                   class="input-field w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Birthdate</label>
+            <input type="date" id="birthdate-input"
+                   class="input-field w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none">
+          </div>
+
+          <button id="submit-phone" class="btn-phone w-full py-3 px-4 rounded-xl text-white font-medium shadow-lg flex items-center justify-center gap-2">
+            <span>Verify Identity</span>
+            <div id="phone-loading" class="loading-spinner hidden"></div>
+          </button>
+
+          <p id="phone-error" class="text-red-500 text-sm text-center hidden"></p>
+        </div>
+      </div>
+
+      <div id="success-state" class="hidden text-center fade-in">
+        <div class="relative w-24 h-24 mx-auto mb-6">
+          <div class="absolute inset-0 bg-green-100 rounded-full pulse-ring"></div>
+          <div class="relative w-24 h-24 bg-green-500 rounded-full flex items-center justify-center success-icon">
+            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">You're Connected!</h2>
+        <p class="text-gray-500">You can close this window.</p>
+      </div>
+
+      <div id="error-state" class="hidden text-center fade-in">
+        <div class="relative w-24 h-24 mx-auto mb-6">
+          <div class="absolute inset-0 bg-red-100 rounded-full pulse-ring"></div>
+          <div class="relative w-24 h-24 bg-red-500 rounded-full flex items-center justify-center error-icon">
+            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
+          <p id="error-message" class="text-gray-600 mb-6 text-center"></p>
+        <button id="retry-btn" class="btn-phone py-3 px-8 rounded-xl text-white font-medium shadow-lg">
+          Try Again
+        </button>
+      </div>
+
+      <div id="checking-state" class="hidden text-center fade-in">
+        <div class="w-16 h-16 mx-auto mb-4">
+          <div class="loading-spinner w-16 h-16 border-4"></div>
+        </div>
+        <p class="text-gray-500">Checking your device...</p>
+      </div>
+    </div>
+
+    <p class="text-center text-white/70 text-sm mt-6">
+      By connecting, you agree to our network usage policy
+    </p>
+  </div>
+
+  <script>
+    let supportConfig = {
+    adminName: null,
+    supportMessage: null
+  };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+
+    const loginOptions = document.getElementById('login-options');
+    const phoneForm = document.getElementById('phone-form');
+    const successState = document.getElementById('success-state');
+    const errorState = document.getElementById('error-state');
+    const checkingState = document.getElementById('checking-state');
+    const phoneBtn = document.getElementById('phone-btn');
+    const backBtn = document.getElementById('back-btn');
+    const submitPhone = document.getElementById('submit-phone');
+    const phoneInput = document.getElementById('phone-input');
+    const birthdateInput = document.getElementById('birthdate-input');
+    const phoneError = document.getElementById('phone-error');
+    const phoneLoading = document.getElementById('phone-loading');
+    const retryBtn = document.getElementById('retry-btn');
+    const errorMessage = document.getElementById('error-message');
+
+    // Google OAuth link (MAC/IP already in session from handoff)
+    document.getElementById('google-btn').href = '/auth/google';
+
+    const errorMessages = {
+      'oauth_failed': 'Google sign-in failed. Please try again.',
+      'not_authenticated': 'Session expired. Please try again.',
+      'missing_token': 'Invalid request. Please reconnect to WiFi.',
+      'invalid_token': 'Invalid or expired link. Please reconnect to WiFi.',
+      'token_used': 'This link has already been used. Please reconnect to WiFi.',
+      'token_expired': 'Link expired. Please reconnect to WiFi.',
+      'session_error': 'Session error. Please try again.'
+    };
+
+    if (error && errorMessages[error]) {
+      showError(errorMessages[error]);
+    }
+
+    function showState(state) {
+      loginOptions.classList.add('hidden');
+      phoneForm.classList.add('hidden');
+      successState.classList.add('hidden');
+      errorState.classList.add('hidden');
+      checkingState.classList.add('hidden');
+
+      switch (state) {
+        case 'login': loginOptions.classList.remove('hidden'); break;
+        case 'phone': phoneForm.classList.remove('hidden'); break;
+        case 'success': successState.classList.remove('hidden'); break;
+        case 'error': errorState.classList.remove('hidden'); break;
+        case 'checking': checkingState.classList.remove('hidden'); break;
+      }
+    }
+
+    async function loadSupportConfig() {
+      try {
+        const res = await fetch('/api/support-config');
+        if (res.ok) {
+          supportConfig = await res.json();
+        }
+      } catch (e) {
+        console.warn('Could not load support config');
+      }
+    }
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      showState('error');
+    }
+
+    // ✅ NEW: route based on server-provided state
+    async function checkSession() {
+      showState('checking');
+
+      try {
+        const sessionResponse = await fetch('/api/session-info');
+        const sessionData = await sessionResponse.json();
+
+        // If no MAC/pending device at all -> just show login UI (they probably didn't come from captive portal)
+        if (!sessionData.hasPendingDevice) {
+          showState('login');
+          return;
+        }
+
+        // Route based on server state machine
+        switch (sessionData.state) {
+          case 'no_session':
+          case 'need_auth':
+            showState('login');
+            return;
+
+          case 'need_verification':
+            window.location.href = '/verify-identity.html';
+            return;
+
+          case 'pending_approval':
+            window.location.href = '/waiting.html';
+            return;
+
+          case 'approved':
+            window.location.href = '/device-select.html';
+            return;
+
+          case 'completed':
+            // If completed, we can show local "connected" or redirect to /success.
+            // I’ll show the local success state so it doesn’t bounce.
+            showState('success');
+            return;
+
+          default:
+            showState('login');
+            return;
+        }
+      } catch (err) {
+        console.error('Session check error:', err);
+        showState('login');
+      }
+    }
+
+    phoneBtn.addEventListener('click', () => showState('phone'));
+    backBtn.addEventListener('click', () => showState('login'));
+
+    submitPhone.addEventListener('click', async () => {
+      const phone = phoneInput.value.trim();
+      const birthdate = birthdateInput.value;
+
+      if (!phone || !birthdate) {
+        phoneError.textContent = 'Please enter both phone number and birthdate';
+        phoneError.classList.remove('hidden');
+        return;
+      }
+
+      phoneError.classList.add('hidden');
+      phoneLoading.classList.remove('hidden');
+      submitPhone.disabled = true;
+
+      try {
+        const response = await fetch('/api/auth/manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, birthdate })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // Let server state machine decide via /api/session-info, but we can fast-path here
+          if (data.autoApproved) {
+            window.location.href = '/device-select.html';
+          } else {
+            window.location.href = '/waiting.html';
+          }
+        } else if (data.notFound) {
+          showError(
+            data.error ||
+            supportConfig.supportMessage ||
+            'No matching contact found. Please contact the network administrator.'
+          );
+        } else {
+          phoneError.textContent = data.error || 'Authentication failed';
+          phoneError.classList.remove('hidden');
+        }
+      } catch (err) {
+        phoneError.textContent = 'Connection error. Please try again.';
+        phoneError.classList.remove('hidden');
+      } finally {
+        phoneLoading.classList.add('hidden');
+        submitPhone.disabled = false;
+      }
+    });
+
+    retryBtn.addEventListener('click', () => {
+      window.location.href = '/';
+    });
+
+    checkSession();
+  </script>
+</body>
+</html>

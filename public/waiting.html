@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waiting for Approval</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      min-height: 100vh;
+    }
+    
+    .card {
+      backdrop-filter: blur(10px);
+      background: rgba(255, 255, 255, 0.95);
+    }
+    
+    @keyframes bounce-in {
+      0% { transform: scale(0); opacity: 0; }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .success-icon { animation: bounce-in 0.5s ease-out forwards; }
+    .error-icon { animation: bounce-in 0.5s ease-out forwards; }
+    .pulse-ring { animation: pulse-ring 1s ease-out infinite; }
+    .pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    
+    .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .waiting-dots span {
+      animation: dot-bounce 1.4s ease-in-out infinite both;
+    }
+    .waiting-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .waiting-dots span:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes dot-bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="gradient-bg flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div class="card rounded-2xl shadow-2xl p-8">
+      
+      <!-- Waiting State -->
+      <div id="waiting-state" class="text-center fade-in">
+        <div class="relative w-24 h-24 mx-auto mb-6">
+          <div class="absolute inset-0 bg-indigo-100 rounded-full pulse"></div>
+          <div class="relative w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
+            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Waiting for Approval</h2>
+        <p class="text-gray-500 mb-4">An admin has been notified of your request</p>
+        <div class="waiting-dots flex justify-center gap-1">
+          <span class="w-2 h-2 bg-indigo-500 rounded-full"></span>
+          <span class="w-2 h-2 bg-indigo-500 rounded-full"></span>
+          <span class="w-2 h-2 bg-indigo-500 rounded-full"></span>
+        </div>
+        <p id="poll-status" class="text-xs text-gray-400 mt-4">Checking status...</p>
+      </div>
+
+      <!-- Success State -->
+      <div id="success-state" class="hidden text-center fade-in">
+        <div class="relative w-24 h-24 mx-auto mb-6">
+          <div class="absolute inset-0 bg-green-100 rounded-full pulse-ring"></div>
+          <div class="relative w-24 h-24 bg-green-500 rounded-full flex items-center justify-center success-icon">
+            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Approved!</h2>
+        <p class="text-gray-500 mb-2">Just a few more steps...</p>
+        <p class="text-sm text-green-600 font-medium">Continuing setup...</p>
+      </div>
+
+      <!-- Error/Denied State -->
+      <div id="error-state" class="hidden text-center fade-in">
+        <div class="relative w-24 h-24 mx-auto mb-6">
+          <div class="absolute inset-0 bg-red-100 rounded-full pulse-ring"></div>
+          <div class="relative w-24 h-24 bg-red-500 rounded-full flex items-center justify-center error-icon">
+            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
+        <p id="error-message" class="text-gray-500 mb-6">Your request was not approved by the administrator.</p>
+        <button id="retry-btn" class="btn-primary py-3 px-8 rounded-xl text-white font-medium shadow-lg">
+          Try Again
+        </button>
+      </div>
+
+    </div>
+
+    <p class="text-center text-white/70 text-sm mt-6">
+      This page will automatically update when your request is processed
+    </p>
+  </div>
+
+  <script>
+    // Elements
+    const waitingState = document.getElementById('waiting-state');
+    const successState = document.getElementById('success-state');
+    const errorState = document.getElementById('error-state');
+    const pollStatus = document.getElementById('poll-status');
+    const retryBtn = document.getElementById('retry-btn');
+
+    let pollCount = 0;
+    let pollInterval;
+
+    function showState(state) {
+      waitingState.classList.add('hidden');
+      successState.classList.add('hidden');
+      errorState.classList.add('hidden');
+
+      switch (state) {
+        case 'waiting':
+          waitingState.classList.remove('hidden');
+          break;
+        case 'success':
+          successState.classList.remove('hidden');
+          break;
+        case 'error':
+          errorState.classList.remove('hidden');
+          break;
+      }
+    }
+
+    async function checkApprovalStatus() {
+      pollCount++;
+      pollStatus.textContent = `Checking status... (${pollCount})`;
+
+      try {
+        // Use session-based endpoint instead of URL params
+        const response = await fetch('/api/approval-status');
+        const data = await response.json();
+
+        if (data.error) {
+          pollStatus.textContent = data.error;
+          return;
+        }
+
+        switch (data.status) {
+          case 'approved':
+            clearInterval(pollInterval);
+            showState('success');
+            // Redirect to device selection (next step after approval)
+            setTimeout(() => {
+              window.location.href = '/device-select.html';
+            }, 1500);
+            break;
+          
+          case 'denied':
+            clearInterval(pollInterval);
+            showState('error');
+            break;
+          
+          case 'session_invalidated':
+            clearInterval(pollInterval);
+            document.getElementById('error-message').textContent = data.message || 'Your session has been invalidated. Please reconnect to WiFi to login again.';
+            showState('error');
+            break;
+          
+          case 'pending':
+          default:
+            // Continue polling
+            break;
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+        pollStatus.textContent = 'Connection error, retrying...';
+      }
+    }
+
+    // Retry button handler
+    retryBtn.addEventListener('click', () => {
+      window.location.href = '/';
+    });
+
+    // Start polling
+    checkApprovalStatus();
+    pollInterval = setInterval(checkApprovalStatus, 3000); // Poll every 3 seconds
+
+    // Stop polling after 10 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      pollStatus.textContent = 'Request timed out. Please try again.';
+    }, 10 * 60 * 1000);
+  </script>
+</body>
+</html>

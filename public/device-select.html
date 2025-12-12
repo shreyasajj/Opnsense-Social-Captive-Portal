@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Device Type</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      min-height: 100vh;
+    }
+    
+    .card {
+      backdrop-filter: blur(10px);
+      background: rgba(255, 255, 255, 0.95);
+    }
+    
+    .device-btn {
+      transition: all 0.2s ease;
+      border: 2px solid transparent;
+    }
+    .device-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    }
+    .device-btn.selected {
+      border-color: #667eea;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover:not(:disabled) {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .loading-spinner {
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="gradient-bg flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div class="card rounded-2xl shadow-2xl p-8 fade-in">
+      <!-- Header -->
+      <div class="text-center mb-8">
+        <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
+          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-800">What device is this?</h1>
+        <p class="text-gray-500 mt-2">Help us set up your connection</p>
+      </div>
+
+      <!-- Device Selection -->
+      <div class="space-y-4 mb-6">
+        <!-- Phone Option -->
+        <button id="phone-option" class="device-btn w-full p-5 bg-white rounded-xl shadow-md flex items-center gap-4 text-left">
+          <div class="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <svg class="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="font-semibold text-gray-800">Phone</h3>
+            <p class="text-sm text-gray-500">Mobile device for presence tracking</p>
+          </div>
+          <div id="phone-check" class="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center hidden">
+            <svg class="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+            </svg>
+          </div>
+        </button>
+
+        <!-- Other Device Option -->
+        <button id="other-option" class="device-btn w-full p-5 bg-white rounded-xl shadow-md flex items-center gap-4 text-left">
+          <div class="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="font-semibold text-gray-800">Everything Else</h3>
+            <p class="text-sm text-gray-500">Laptop, tablet, or other device</p>
+          </div>
+          <div id="other-check" class="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center hidden">
+            <svg class="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+            </svg>
+          </div>
+        </button>
+      </div>
+
+      <!-- Info Box -->
+      <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-6">
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p class="text-sm text-amber-700">
+            <strong>Why we ask:</strong> We track phones on WiFi to detect who's home for smart home automation. Other devices won't be used for presence detection.
+          </p>
+        </div>
+      </div>
+
+      <!-- Submit Button -->
+      <button id="submit-btn" disabled
+              class="btn-primary w-full py-3 px-4 rounded-xl text-white font-medium shadow-lg flex items-center justify-center gap-2">
+        <span id="btn-text">Continue</span>
+        <span id="btn-loading" class="loading-spinner hidden"></span>
+      </button>
+
+      <p id="error-message" class="text-red-500 text-sm text-center mt-4 hidden"></p>
+    </div>
+
+    <p class="text-center text-white/70 text-sm mt-6">
+      This helps us track which devices are in the house
+    </p>
+  </div>
+
+  <script>
+    // Elements
+    const phoneOption = document.getElementById('phone-option');
+    const otherOption = document.getElementById('other-option');
+    const phoneCheck = document.getElementById('phone-check');
+    const otherCheck = document.getElementById('other-check');
+    const submitBtn = document.getElementById('submit-btn');
+    const btnText = document.getElementById('btn-text');
+    const btnLoading = document.getElementById('btn-loading');
+    const errorMessage = document.getElementById('error-message');
+
+    let selectedDevice = null;
+    let sessionData = null;
+
+    // Fetch session info on page load
+    async function loadSessionInfo() {
+      try {
+        const response = await fetch('/api/session-info');
+        const data = await response.json();
+
+        if (!data.authenticated) {
+          // Not authenticated, redirect back to login
+          window.location.href = '/?error=not_authenticated';
+          return;
+        }
+
+        sessionData = data;
+      } catch (err) {
+        console.error('Failed to load session info:', err);
+        window.location.href = '/?error=session_error';
+      }
+    }
+
+    // Load session info when page loads
+    loadSessionInfo();
+
+    // Device selection handlers
+    phoneOption.addEventListener('click', () => selectDevice('phone'));
+    otherOption.addEventListener('click', () => selectDevice('other'));
+
+    function selectDevice(device) {
+      selectedDevice = device;
+      
+      // Update UI
+      phoneOption.classList.toggle('selected', device === 'phone');
+      otherOption.classList.toggle('selected', device === 'other');
+      phoneCheck.classList.toggle('hidden', device !== 'phone');
+      otherCheck.classList.toggle('hidden', device !== 'other');
+      
+      // Enable submit button
+      submitBtn.disabled = false;
+    }
+
+    // Submit handler
+    submitBtn.addEventListener('click', async () => {
+      if (!selectedDevice || !sessionData) return;
+
+      errorMessage.classList.add('hidden');
+      submitBtn.disabled = true;
+      btnText.textContent = 'Submitting...';
+      btnLoading.classList.remove('hidden');
+
+      try {
+        const response = await fetch('/api/device-select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceType: selectedDevice
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // If user logged in via phone/birthdate, skip contact-info (already verified)
+          if (sessionData.contactVerified) {
+            // Complete the flow directly
+            const completeResponse = await fetch('/api/submit-contact-info', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ skip: true })
+            });
+            const completeData = await completeResponse.json();
+            if (completeData.success) {
+              window.location.href = completeData.redirectUrl || 'http://detectportal.firefox.com/success.txt';
+            } else {
+              window.location.href = '/contact-info.html';
+            }
+          } else {
+            // Google OAuth users - go to contact-info page
+            window.location.href = '/contact-info.html';
+          }
+        } else {
+          errorMessage.textContent = data.error || 'Failed to submit request';
+          errorMessage.classList.remove('hidden');
+          submitBtn.disabled = false;
+        }
+      } catch (err) {
+        errorMessage.textContent = 'Connection error. Please try again.';
+        errorMessage.classList.remove('hidden');
+        submitBtn.disabled = false;
+      } finally {
+        btnText.textContent = 'Continue';
+        btnLoading.classList.add('hidden');
+      }
+    });
+  </script>
+</body>
+</html>
