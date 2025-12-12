@@ -842,15 +842,15 @@ app.get('/auth/google/callback',
       `).run(sessionId, userName, mac, isAutoApproved ? 'approved' : 'pending');
       
       // Notify HA for NEW approval requests only (if not auto-approved and person is verified)
-      if (!isAutoApproved && personVerified) {
-        await notifyHomeAssistant('approval_request', {
-          session_id: sessionId,
-          user_name: userName,
-          device_type: 'pending',
-          mac_address: mac,
-          person_id: existingPersonId
-        });
-      }
+      // if (!isAutoApproved && personVerified) {
+      //   await notifyHomeAssistant('approval_request', {
+      //     session_id: sessionId,
+      //     user_name: userName,
+      //     device_type: 'pending',
+      //     mac_address: mac,
+      //     person_id: existingPersonId
+      //   });
+      // }
     }
     
     // ========================================================================
@@ -1027,15 +1027,15 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
       `).run(sessionId, contact.name, mac, isAutoApproved ? 'approved' : 'pending');
 
       // Only notify Home Assistant if NOT auto-approved
-      if (!isAutoApproved) {
-        await notifyHomeAssistant('approval_request', {
-          session_id: sessionId,
-          user_name: contact.name,
-          device_type: 'pending',
-          mac_address: mac,
-          person_id: existingPersonId
-        });
-      }
+      // if (!isAutoApproved) {
+      //   await notifyHomeAssistant('approval_request', {
+      //     session_id: sessionId,
+      //     user_name: contact.name,
+      //     device_type: 'pending',
+      //     mac_address: mac,
+      //     person_id: existingPersonId
+      //   });
+      // }
     }
 
     // Store contact photo in session
@@ -1295,15 +1295,15 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
       req.session.verifiedBirthdate = contactBirthdate;
       
       // NOW that user is verified, send approval notification to HA (if not auto-approved)
-      if (!isAutoApproved) {
-        await notifyHomeAssistant('approval_request', {
-          session_id: req.session.sessionId,
-          user_name: finalName,
-          device_type: 'pending',
-          mac_address: mac,
-          person_id: personId
-        });
-      }
+      // if (!isAutoApproved) {
+      //   await notifyHomeAssistant('approval_request', {
+      //     session_id: req.session.sessionId,
+      //     user_name: finalName,
+      //     device_type: 'pending',
+      //     mac_address: mac,
+      //     person_id: personId
+      //   });
+      // }
       
       console.log(`[Verify] Identity verified for ${finalName}, autoApproved: ${isAutoApproved}`);
       
@@ -1404,15 +1404,15 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
     req.session.verifiedBirthdate = birthdate;
     
     // NOW that user is verified, send approval notification to HA (if not auto-approved)
-    if (!isAutoApproved) {
-      await notifyHomeAssistant('approval_request', {
-        session_id: req.session.sessionId,
-        user_name: finalName,
-        device_type: 'pending',
-        mac_address: mac,
-        person_id: personId
-      });
-    }
+    // if (!isAutoApproved) {
+    //   await notifyHomeAssistant('approval_request', {
+    //     session_id: req.session.sessionId,
+    //     user_name: finalName,
+    //     device_type: 'pending',
+    //     mac_address: mac,
+    //     person_id: personId
+    //   });
+    // }
     
     res.json({ 
       success: true, 
@@ -1423,69 +1423,6 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
   } catch (error) {
     console.error('Manual verification error:', error);
     res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-// Profile completion (after Google OAuth) - DEPRECATED, keeping for backwards compatibility
-app.post('/api/profile-complete', async (req, res) => {
-  const { name, birthdate, phone } = req.body;
-  
-  // Get mac and ip from session (secure, not from client)
-  const mac = req.session.pendingMac;
-  const ip = req.session.pendingIp;
-
-  if (!req.session.oauthUser && !req.user && !req.session.passport?.user) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  const oauthUser = req.session.oauthUser || req.user || req.session.passport.user;
-
-  try {
-    // Update or create user with profile info
-    const existingUser = db.prepare('SELECT id FROM users WHERE oauth_id = ?').get(oauthUser.oauth_id);
-    
-    let userId;
-    if (existingUser) {
-      const updateStmt = db.prepare(`
-        UPDATE users SET name = ?, birthdate = ?, phone = ?, mac_address = ?
-        WHERE oauth_id = ?
-      `);
-      updateStmt.run(name, birthdate || null, phone ? normalizePhone(phone) : null, mac, oauthUser.oauth_id);
-      userId = existingUser.id;
-    } else {
-      const insertStmt = db.prepare(`
-        INSERT INTO users (name, birthdate, phone, auth_method, oauth_id, mac_address, approved)
-        VALUES (?, ?, ?, 'google', ?, ?, 0)
-      `);
-      const result = insertStmt.run(name, birthdate || null, phone ? normalizePhone(phone) : null, oauthUser.oauth_id, mac);
-      userId = result.lastInsertRowid;
-    }
-
-    // If phone and birthdate provided, create CardDAV contact
-    if (phone && birthdate) {
-      await createOrUpdateCardDAVContact(name, phone, birthdate);
-    }
-
-    // Create session
-    const sessionId = uuidv4();
-    const sessionStmt = db.prepare(`
-      INSERT INTO sessions (id, user_id, mac_address, ip_address, status)
-      VALUES (?, ?, ?, ?, 'authenticated')
-    `);
-    sessionStmt.run(sessionId, userId, mac, ip);
-
-    req.session.userId = userId;
-    req.session.sessionId = sessionId;
-    req.session.userName = name;
-
-    res.json({
-      success: true,
-      sessionId,
-      userName: name
-    });
-  } catch (error) {
-    console.error('Profile completion error:', error);
-    res.status(500).json({ error: 'Failed to save profile' });
   }
 });
 
@@ -1727,13 +1664,13 @@ async function completeAccessFlow(req, res) {
   db.prepare('DELETE FROM opnsense_macs WHERE mac_address = ?').run(normalizedMac);
   
   // Notify HA that flow is complete
-  await notifyHomeAssistant('flow_completed', {
-    session_id: sessionId,
-    user_name: userName,
-    mac_address: normalizedMac,
-    device_type: deviceType,
-    person_id: personId
-  });
+  // await notifyHomeAssistant('flow_completed', {
+  //   session_id: sessionId,
+  //   user_name: userName,
+  //   mac_address: normalizedMac,
+  //   device_type: deviceType,
+  //   person_id: personId
+  // });
   
   console.log(`completeAccessFlow: SUCCESS - ${userName} (${normalizedMac}) granted access`);
   
