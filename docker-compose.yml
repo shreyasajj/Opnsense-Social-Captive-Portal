@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   captive-portal:
-    build: .
+    image: ghcr.io/shreyasajj/opnsense-social-captive-portal:main
     container_name: captive-portal
     restart: unless-stopped
     ports:

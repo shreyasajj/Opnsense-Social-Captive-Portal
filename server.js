@@ -23,6 +23,7 @@ const carddav = require('./lib/carddav');
 const homeassistant = require('./lib/homeassistant');
 const opnsense = require('./lib/opnsense');
 const people = require('./lib/people');
+const logger = require('./lib/logger');
 
 // Initialize people module with database and HA notification
 people.init(db, homeassistant.notifyHomeAssistant);
@@ -87,7 +88,7 @@ const invalidatedSessionIds = new Set();
 setInterval(() => {
   // We'll keep track of when sessions were invalidated in a Map if we need expiry
   // For now, just keep them since sessions expire anyway
-  console.log(`[Session Invalidation] Tracking ${invalidatedSessionIds.size} invalidated session IDs`);
+  logger.info(`[Session Invalidation] Tracking ${invalidatedSessionIds.size} invalidated session IDs`);
 }, 60 * 60 * 1000); // Log every hour
 
 // ============================================================================
@@ -157,7 +158,7 @@ app.use((req, res, next) => {
   if (req.session && req.session.sessionId) {
     if (invalidatedSessionIds.has(req.session.sessionId)) {
       const oldSessionId = req.session.sessionId;
-      console.log(`[Session] Invalidating cookie session: ${oldSessionId}`);
+      logger.info(`[Session] Invalidating cookie session: ${oldSessionId}`);
       // Remove from tracking
       invalidatedSessionIds.delete(oldSessionId);
       
@@ -165,7 +166,7 @@ app.use((req, res, next) => {
       // but keeps the session infrastructure intact for passport
       req.session.regenerate((err) => {
         if (err) {
-          console.error('[Session] Error regenerating session:', err);
+          logger.error('[Session] Error regenerating session:', err);
           // Fall back to just clearing session variables
           delete req.session.sessionId;
           delete req.session.userId;
@@ -181,7 +182,7 @@ app.use((req, res, next) => {
 
 
         }
-        console.log(`[Session] Session regenerated, old session ${oldSessionId} invalidated`);
+        logger.info(`[Session] Session regenerated, old session ${oldSessionId} invalidated`);
         next();
       });
       return;
@@ -232,13 +233,13 @@ function getSessionState(req) {
   `).get(req.session.sessionId);
   
   if (!approval) {
-    console.log(`[State] No approval record for session ${req.session.sessionId}`);
+    logger.info(`[State] No approval record for session ${req.session.sessionId}`);
     return SessionState.NEED_AUTH;
   }
   
   // If session is disabled (person/device was deleted), treat as need auth
   if (approval.disabled === 1) {
-    console.log(`[State] Session ${req.session.sessionId} is disabled`);
+    logger.debug(`[State] Session ${req.session.sessionId} is disabled`);
     // Clear the session so user can start fresh
     delete req.session.sessionId;
     delete req.session.userId;
@@ -252,7 +253,7 @@ function getSessionState(req) {
   
   // Approved but not completed device selection
   if (approval.status === 'approved') {
-    console.log(`[State] Session ${req.session.sessionId} is APPROVED (flow_completed=${approval.flow_completed})`);
+    logger.debug(`[State] Session ${req.session.sessionId} is APPROVED (flow_completed=${approval.flow_completed})`);
     return SessionState.APPROVED;
   }
   
@@ -260,14 +261,14 @@ function getSessionState(req) {
   if (approval.status === 'pending') {
     // Check if OAuth user needs verification
     if (req.session.authMethod === 'google' && !req.session.contactVerified) {
-      console.log(`[State] Session ${req.session.sessionId} is PENDING but needs verification (authMethod=${req.session.authMethod}, contactVerified=${req.session.contactVerified})`);
+      logger.debug(`[State] Session ${req.session.sessionId} is PENDING but needs verification (authMethod=${req.session.authMethod}, contactVerified=${req.session.contactVerified})`);
       return SessionState.NEED_VERIFICATION;
     }
-    console.log(`[State] Session ${req.session.sessionId} is PENDING_APPROVAL`);
+    logger.debug(`[State] Session ${req.session.sessionId} is PENDING_APPROVAL`);
     return SessionState.PENDING_APPROVAL;
   }
   
-  console.log(`[State] Session ${req.session.sessionId} has unknown status: ${approval.status}`);
+  logger.debug(`[State] Session ${req.session.sessionId} has unknown status: ${approval.status}`);
   return SessionState.NEED_AUTH;
 }
 
@@ -297,8 +298,6 @@ function getPageForState(state) {
  * Skip for API routes, static assets, auth routes
  */
 function stateMiddleware(req, res, next) {
-  console.log(`${req.path}`)
-  // console.log(`${req} ${re}`)
   // Skip for API routes
   if (req.path.startsWith('/api/')) {
     return next();
@@ -332,11 +331,11 @@ function stateMiddleware(req, res, next) {
   }
   
   const state = getSessionState(req);
-  console.log(`Current state ${state}`)
+  logger.debug(`Current state ${state}`)
   const correctPage = getPageForState(state);
   
   // Debug logging
-  console.log(`[STATE] ${req.method} ${req.path} - State: ${state}, Correct: ${correctPage || 'any'}`);
+  logger.debug(`[STATE] ${req.method} ${req.path} - State: ${state}, Correct: ${correctPage || 'any'}`);
   
   // If completed, allow any page
   if (state === SessionState.COMPLETED) {
@@ -353,7 +352,7 @@ function stateMiddleware(req, res, next) {
   
   // If on wrong page, redirect
   if (correctPage && currentPage !== correctPage) {
-    console.log(`[STATE] Redirecting from ${currentPage} to ${correctPage}`);
+    logger.info(`[STATE] Redirecting from ${currentPage} to ${correctPage}`);
     return res.redirect(correctPage);
   }
   
@@ -438,15 +437,15 @@ async function pollArpTable() {
       }
     }
     
-    console.log(`[ARP Poll] Checked ${macs.length} devices, ${Object.values(onlineStatus).filter(Boolean).length} online`);
+    logger.info(`[ARP Poll] Checked ${macs.length} devices, ${Object.values(onlineStatus).filter(Boolean).length} online`);
   } catch (error) {
-    console.error('[ARP Poll] Error:', error.message);
+    logger.error('[ARP Poll] Error:', error.message);
   }
 }
 
 // Start ARP polling if OPNsense is configured
 if (process.env.OPNSENSE_URL && process.env.OPNSENSE_API_KEY) {
-  console.log(`[ARP Poll] Starting ARP polling every ${ARP_POLL_INTERVAL / 1000} seconds`);
+  logger.info(`[ARP Poll] Starting ARP polling every ${ARP_POLL_INTERVAL / 1000} seconds`);
   setInterval(pollArpTable, ARP_POLL_INTERVAL);
   // Run immediately on startup
   setTimeout(pollArpTable, 5000);
@@ -593,7 +592,7 @@ app.get('/handoff', (req, res) => {
     req.session.userName = existingSession.user_name;
     req.session.autoApproved = true;
     
-    console.log(`[Handoff] Resuming approved session for MAC ${tokenData.mac} -> device-select`);
+    logger.debug(`[Handoff] Resuming approved session for MAC ${tokenData.mac} -> device-select`);
     return res.redirect('/device-select.html');
   }
   
@@ -685,14 +684,14 @@ app.get('/auth/google', (req, res, next) => {
   
   // Check if we have MAC - if not, redirect to start
   if (!req.session.pendingMac) {
-    console.log('No MAC in session for Google OAuth - redirecting to start');
+    logger.debug('No MAC in session for Google OAuth - redirecting to start');
     return res.redirect(SESSION_TIMEOUT_REDIRECT);
   }
   
   // Save session before redirecting to Google (important!)
   req.session.save((err) => {
     if (err) {
-      console.error('Session save error:', err);
+      logger.error('Session save error:', err);
     }
     passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
   });
@@ -705,7 +704,7 @@ app.get('/auth/google/callback',
     // which would wipe out our pendingMac and pendingIp
     res.locals.pendingMac = req.session.pendingMac;
     res.locals.pendingIp = req.session.pendingIp;
-    console.log(`[OAuth] Saving MAC before passport: ${res.locals.pendingMac}`);
+    logger.debug(`[OAuth] Saving MAC before passport: ${res.locals.pendingMac}`);
     next();
   },
   passport.authenticate('google', { failureRedirect: '/?error=oauth_failed' }),
@@ -724,11 +723,11 @@ app.get('/auth/google/callback',
     
     // Check if MAC is in session - if not, session was lost
     if (!mac) {
-      console.error('Google OAuth callback: No MAC in session - session may have been lost');
+      logger.error('Google OAuth callback: No MAC in session - session may have been lost');
       return res.redirect(SESSION_TIMEOUT_REDIRECT);
     }
     
-    console.log(`Google OAuth callback: user=${userName}, oauth_id=${oauthId}, mac=${mac}`);
+    logger.debug(`Google OAuth callback: user=${userName}, oauth_id=${oauthId}, mac=${mac}`);
     
     // ========================================================================
     // STEP 1: Check if this Google account is already associated with a person
@@ -748,7 +747,7 @@ app.get('/auth/google/callback',
       const person = db.prepare('SELECT * FROM people WHERE id = ?').get(existingPersonId);
       if (person) {
         personVerified = true;
-        console.log(`OAuth user ${userName} already linked to person: ${person.name} (id: ${existingPersonId})`);
+        logger.debug(`OAuth user ${userName} already linked to person: ${person.name} (id: ${existingPersonId})`);
       }
     }
     
@@ -761,7 +760,7 @@ app.get('/auth/google/callback',
         .get(existingPersonId);
       if (approvedDevice) {
         isAutoApproved = true;
-        console.log(`Auto-approving ${userName} - has existing approved devices`);
+        logger.info(`Auto-approving ${userName} - has existing approved devices`);
       }
     }
     
@@ -772,9 +771,9 @@ app.get('/auth/google/callback',
     if (!existingPersonId) {
       cardDavContact = await findBestMatchingContact(userName, 0.5);
       if (cardDavContact) {
-        console.log(`Found CardDAV fuzzy match: "${cardDavContact.name}" (similarity: ${cardDavContact.similarity.toFixed(2)})`);
+        logger.info(`Found CardDAV fuzzy match: "${cardDavContact.name}" (similarity: ${cardDavContact.similarity.toFixed(2)})`);
       } else {
-        console.log(`No CardDAV match found for "${userName}"`);
+        logger.info(`No CardDAV match found for "${userName}"`);
       }
     }
     
@@ -795,7 +794,7 @@ app.get('/auth/google/callback',
         userId = result.lastInsertRowid;
       }
     } catch (err) {
-      console.error('User creation error:', err);
+      logger.error('User creation error:', err);
       return res.redirect('/?error=user_creation_failed');
     }
     
@@ -820,7 +819,7 @@ app.get('/auth/google/callback',
     if (existingApproval) {
       // Reuse existing approval - this is another device for same person
       sessionId = existingApproval.session_id;
-      console.log(`Reusing existing approval request ${sessionId} for person ${existingPersonId}`);
+      logger.debug(`Reusing existing approval request ${sessionId} for person ${existingPersonId}`);
       
       // Create session record for this device pointing to same approval
       db.prepare(`
@@ -883,19 +882,19 @@ app.get('/auth/google/callback',
     // STEP 7: Decide where to redirect based on state
     // ========================================================================
     req.session.save((err) => {
-      if (err) console.error('Session save error:', err);
+      if (err) logger.error('Session save error:', err);
       
       if (isAutoApproved) {
         // Has approved devices -> go to device selection
-        console.log(`[OAuth] Redirecting to device-select (auto-approved)`);
+        logger.info(`[OAuth] Redirecting to device-select (auto-approved)`);
         res.redirect('/device-select.html');
       } else if (personVerified) {
         // Person exists but no devices yet -> wait for approval
-        console.log(`[OAuth] Redirecting to waiting (verified, pending approval)`);
+        logger.info(`[OAuth] Redirecting to waiting (verified, pending approval)`);
         res.redirect('/waiting.html');
       } else {
         // Need to verify identity first
-        console.log(`[OAuth] Redirecting to verify-identity (need verification)`);
+        logger.info(`[OAuth] Redirecting to verify-identity (need verification)`);
         res.redirect('/verify-identity.html');
       }
     });
@@ -968,7 +967,7 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
       
       if (approvedDevice) {
         isAutoApproved = true;
-        console.log(`Auto-approving ${contact.name} - has existing approved devices`);
+        logger.debug(`Auto-approving ${contact.name} - has existing approved devices`);
       }
     }
 
@@ -1005,7 +1004,7 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
     if (existingApproval) {
       // Reuse existing approval - another device for same person
       sessionId = existingApproval.session_id;
-      console.log(`Reusing existing approval request ${sessionId} for person ${existingPersonId}`);
+      logger.info(`Reusing existing approval request ${sessionId} for person ${existingPersonId}`);
       
       // Create session record for this device
       db.prepare(`
@@ -1064,7 +1063,7 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
         : 'Authentication successful'
     });
   } catch (error) {
-    console.error('Manual auth error:', error);
+    logger.error('Manual auth error:', error);
     
     // Check if it's a CardDAV connection error
     if (error instanceof CardDAVError) {
@@ -1216,7 +1215,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
     const finalName = name?.trim() || originalName;
     
     // Always update the user's name to the final name
-    console.log(`[Verify] Setting display name to "${finalName}" (was "${originalName}")`);
+    logger.debug(`[Verify] Setting display name to "${finalName}" (was "${originalName}")`);
     req.session.userName = finalName;
     db.prepare('UPDATE users SET name = ? WHERE id = ?').run(finalName, req.session.userId);
     db.prepare('UPDATE approval_requests SET user_name = ? WHERE session_id = ?')
@@ -1233,19 +1232,19 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
       // 2. Contact doesn't already have one (or user provided a different one)
       if (birthdate && cardDavContact.uid) {
         if (!cardDavContact.birthdate) {
-          console.log(`[Verify] Adding birthdate ${birthdate} to CardDAV contact ${cardDavContact.name}`);
+          logger.debug(`[Verify] Adding birthdate ${birthdate} to CardDAV contact ${cardDavContact.name}`);
           try {
             await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate);
           } catch (cardDavError) {
-            console.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
+            logger.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
             // Continue anyway - this is not critical
           }
         } else if (birthdate !== cardDavContact.birthdate) {
-          console.log(`[Verify] Updating birthdate in CardDAV from ${cardDavContact.birthdate} to ${birthdate}`);
+          logger.info(`[Verify] Updating birthdate in CardDAV from ${cardDavContact.birthdate} to ${birthdate}`);
           try {
             await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate);
           } catch (cardDavError) {
-            console.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
+            logger.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
             // Continue anyway - this is not critical
           }
         }
@@ -1275,7 +1274,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
               .run('approved', req.session.sessionId);
             db.prepare('UPDATE users SET approved = 1 WHERE id = ?')
               .run(req.session.userId);
-            console.log(`[Verify] Auto-approved ${finalName} - phone matches existing person with devices`);
+            logger.info(`[Verify] Auto-approved ${finalName} - phone matches existing person with devices`);
           }
         }
       }
@@ -1305,7 +1304,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
       //   });
       // }
       
-      console.log(`[Verify] Identity verified for ${finalName}, autoApproved: ${isAutoApproved}`);
+      logger.debug(`[Verify] Identity verified for ${finalName}, autoApproved: ${isAutoApproved}`);
       
       return res.json({ 
         success: true, 
@@ -1323,7 +1322,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Identity verification error:', error);
+    logger.error('Identity verification error:', error);
     res.status(500).json({ error: 'Verification failed' });
   }
 });
@@ -1388,7 +1387,7 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
           .run('approved', req.session.sessionId);
         db.prepare('UPDATE users SET approved = 1 WHERE id = ?')
           .run(req.session.userId);
-        console.log(`Auto-approved ${finalName} - phone matches existing person ${personByPhone.name}`);
+        logger.debug(`Auto-approved ${finalName} - phone matches existing person ${personByPhone.name}`);
       }
     } else {
       // Update user with verified info
@@ -1421,7 +1420,7 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
       autoApproved: isAutoApproved
     });
   } catch (error) {
-    console.error('Manual verification error:', error);
+    logger.error('Manual verification error:', error);
     res.status(500).json({ error: 'Verification failed' });
   }
 });
@@ -1461,7 +1460,7 @@ app.post('/api/device-select', async (req, res) => {
       message: 'Device type saved'
     });
   } catch (error) {
-    console.error('Device selection error:', error);
+    logger.error('Device selection error:', error);
     res.status(500).json({ error: 'Failed to save device selection' });
   }
 });
@@ -1497,7 +1496,7 @@ app.get('/api/check-contact', async (req, res) => {
       message: 'Contact not found - optional info can be provided'
     });
   } catch (error) {
-    console.error('Contact lookup error:', error);
+    logger.error('Contact lookup error:', error);
     // On error, don't block the flow - just mark as not found
     req.session.contactFound = false;
     res.json({ found: false, name: userName });
@@ -1545,7 +1544,7 @@ app.post('/api/submit-contact-info', async (req, res) => {
     
     await completeAccessFlow(req, res);
   } catch (error) {
-    console.error('Contact info error:', error);
+    logger.error('Contact info error:', error);
     // Don't block on error - complete the flow anyway
     await completeAccessFlow(req, res);
   }
@@ -1559,17 +1558,17 @@ async function completeAccessFlow(req, res) {
   const sessionId = req.session.sessionId;
   const userId = req.session.userId;
   
-  console.log(`completeAccessFlow: mac=${mac}, deviceType=${deviceType}, userName=${userName}, sessionId=${sessionId}`);
+  logger.debug(`completeAccessFlow: mac=${mac}, deviceType=${deviceType}, userName=${userName}, sessionId=${sessionId}`);
   
   if (!mac || !sessionId) {
-    console.error('completeAccessFlow: Missing mac or sessionId');
+    logger.error('completeAccessFlow: Missing mac or sessionId');
     return res.status(400).json({ error: 'Session expired', redirect: SESSION_TIMEOUT_REDIRECT });
   }
   
   // Check that approval has been granted
   const approval = db.prepare('SELECT status FROM approval_requests WHERE session_id = ?').get(sessionId);
   if (!approval || approval.status !== 'approved') {
-    console.error(`completeAccessFlow: Not approved yet (status=${approval?.status})`);
+    logger.error(`completeAccessFlow: Not approved yet (status=${approval?.status})`);
     return res.status(403).json({ error: 'Not approved yet' });
   }
   
@@ -1582,13 +1581,13 @@ async function completeAccessFlow(req, res) {
   if (!personId) {
     // Find or create person
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    console.log(`completeAccessFlow: Creating/finding person for ${userName}, phone=${user?.phone}`);
+    logger.debug(`completeAccessFlow: Creating/finding person for ${userName}, phone=${user?.phone}`);
     personId = findOrCreatePerson(userName, {
       email: user?.oauth_id ? null : undefined,
       phone: user?.phone,
       birthdate: user?.birthdate
     });
-    console.log(`completeAccessFlow: personId=${personId}`);
+    logger.debug(`completeAccessFlow: personId=${personId}`);
   }
   
   // ENFORCE ONE PHONE PER PERSON
@@ -1601,7 +1600,7 @@ async function completeAccessFlow(req, res) {
     `).get(personId);
     
     if (existingPhone) {
-      console.log(`Person ${personId} already has phone ${existingPhone.mac_address} - changing this device to 'other'`);
+      logger.info(`Person ${personId} already has phone ${existingPhone.mac_address} - changing this device to 'other'`);
       deviceType = 'other'; // Downgrade to 'other' so only one phone is tracked
       req.session.deviceType = 'other';
     }
@@ -1619,7 +1618,7 @@ async function completeAccessFlow(req, res) {
   
   // Add to local whitelist
   const normalizedMac = mac.toUpperCase();
-  console.log(`completeAccessFlow: Adding to whitelist - mac=${normalizedMac}, userName=${userName}, deviceType=${deviceType}, personId=${personId}`);
+  logger.info(`completeAccessFlow: Adding to whitelist - mac=${normalizedMac}, userName=${userName}, deviceType=${deviceType}, personId=${personId}`);
   
   db.prepare(`
     INSERT OR REPLACE INTO whitelist (mac_address, user_name, device_type, user_id, person_id, first_approved, last_seen, permanent)
@@ -1637,16 +1636,16 @@ async function completeAccessFlow(req, res) {
   }
   
   // FINALLY - Grant access via OPNsense (last step!)
-  console.log(`completeAccessFlow: Whitelisting MAC ${normalizedMac} in OPNsense`);
+  logger.info(`completeAccessFlow: Whitelisting MAC ${normalizedMac} in OPNsense`);
   try {
     const opnResult = await allowMacInOPNsense(normalizedMac);
     
     if (opnResult.alreadyExists) {
-      console.log(`MAC ${normalizedMac} was already in OPNsense whitelist`);
+      logger.debug(`MAC ${normalizedMac} was already in OPNsense whitelist`);
     }
   } catch (opnError) {
     // OPNsense error - return error to user
-    console.error(`OPNsense error: ${opnError.message}`);
+    logger.error(`OPNsense error: ${opnError.message}`);
     
     // Roll back local whitelist entry since OPNsense failed
     db.prepare('DELETE FROM whitelist WHERE mac_address = ?').run(normalizedMac);
@@ -1672,7 +1671,7 @@ async function completeAccessFlow(req, res) {
   //   person_id: personId
   // });
   
-  console.log(`completeAccessFlow: SUCCESS - ${userName} (${normalizedMac}) granted access`);
+  logger.debug(`completeAccessFlow: SUCCESS - ${userName} (${normalizedMac}) granted access`);
   
   res.json({
     success: true,
@@ -1766,7 +1765,7 @@ const setDeviceOfflineTimeout = (value) => {
   const newValue = parseInt(value);
   if (!isNaN(newValue) && newValue > 0) {
     DEVICE_OFFLINE_TIMEOUT = newValue;
-    console.log(`[Config] Device offline timeout updated to ${newValue} seconds`);
+    logger.info(`[Config] Device offline timeout updated to ${newValue} seconds`);
     return true;
   }
   return false;
@@ -1831,18 +1830,18 @@ app.get('/api/session-timeout-redirect', (req, res) => {
  * so it shows up in admin panel for revocation
  */
 async function syncOPNsenseMacs() {
-  console.log('Syncing whitelisted MACs from OPNsense...');
+  logger.info('Syncing whitelisted MACs from OPNsense...');
   
   try {
     const result = await getWhitelistedMacs();
     
     if (result.skipped) {
-      console.log('OPNsense not configured - skipping MAC sync');
+      logger.info('OPNsense not configured - skipping MAC sync');
       return;
     }
     
     const opnsenseMacs = result.macs;
-    console.log(`Found ${opnsenseMacs.length} MACs in OPNsense whitelist`);
+    logger.info(`Found ${opnsenseMacs.length} MACs in OPNsense whitelist`);
     
     // Get all MACs in our local whitelist
     const localMacs = db.prepare('SELECT mac_address FROM whitelist').all()
@@ -1855,7 +1854,7 @@ async function syncOPNsenseMacs() {
     for (const mac of opnsenseMacs) {
       const normalizedMac = mac.toUpperCase();
       if (!localMacSet.has(normalizedMac)) {
-        console.log(`Tracking unknown MAC ${normalizedMac} from OPNsense`);
+        logger.info(`Tracking unknown MAC ${normalizedMac} from OPNsense`);
         
         // Add to opnsense_macs table (NOT whitelist)
         // This makes it available for revocation in admin panel
@@ -1882,15 +1881,15 @@ async function syncOPNsenseMacs() {
     }
     
     if (addedCount > 0) {
-      console.log(`Added ${addedCount} unknown MACs from OPNsense to tracking`);
+      logger.info(`Added ${addedCount} unknown MACs from OPNsense to tracking`);
     } else {
-      console.log('All OPNsense MACs are already tracked');
+      logger.info('All OPNsense MACs are already tracked');
     }
   } catch (error) {
     if (error instanceof OPNsenseError) {
-      console.error(`OPNsense sync error [${error.code}]: ${error.message}`);
+      logger.error(`OPNsense sync error [${error.code}]: ${error.message}`);
     } else {
-      console.error('Error syncing OPNsense MACs:', error);
+      logger.error('Error syncing OPNsense MACs:', error);
     }
   }
 }
@@ -2003,7 +2002,7 @@ app.get('/api/success-config', (req, res) => {
 function purgeOldSessions() {
   const cutoffDate = new Date(Date.now() - SESSION_MAX_AGE_HOURS * 60 * 60 * 1000).toISOString();
   
-  console.log(`[Session Purge] Purging sessions older than ${SESSION_MAX_AGE_HOURS} hours (before ${cutoffDate})`);
+  logger.debug(`[Session Purge] Purging sessions older than ${SESSION_MAX_AGE_HOURS} hours (before ${cutoffDate})`);
   
   try {
     // Delete old approval requests (completed or denied)
@@ -2019,9 +2018,9 @@ function purgeOldSessions() {
       AND id NOT IN (SELECT session_id FROM approval_requests WHERE status = 'pending' AND disabled = 0)
     `).run(cutoffDate);
     
-    console.log(`[Session Purge] Deleted ${approvalResult.changes} approval requests, ${sessionResult.changes} sessions`);
+    logger.debug(`[Session Purge] Deleted ${approvalResult.changes} approval requests, ${sessionResult.changes} sessions`);
   } catch (error) {
-    console.error('[Session Purge] Error:', error.message);
+    logger.error('[Session Purge] Error:', error.message);
   }
 }
 

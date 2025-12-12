@@ -117,7 +117,7 @@ module.exports = function(app, db, helpers) {
 
       res.json({ success: true, message: 'Request approved - waiting for user to complete device selection' });
     } catch (error) {
-      console.error('Approval error:', error);
+      logger.error('Approval error:', error);
       res.status(500).json({ error: 'Failed to approve request' });
     }
   });
@@ -138,7 +138,7 @@ module.exports = function(app, db, helpers) {
 
       res.json({ success: true, message: 'Request denied' });
     } catch (error) {
-      console.error('Denial error:', error);
+      logger.error('Denial error:', error);
       res.status(500).json({ error: 'Failed to deny request' });
     }
   });
@@ -170,7 +170,7 @@ module.exports = function(app, db, helpers) {
         // Add to invalidated set to destroy cookie sessions
         sessionIds.forEach(id => {
           invalidatedSessionIds.add(id);
-          console.log(`[Session] Added ${id} to invalidated sessions (whitelist removal)`);
+          logger.debug(`[Session] Added ${id} to invalidated sessions (whitelist removal)`);
         });
       }
       
@@ -179,7 +179,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Access revoked', invalidatedSessions: sessionIds.length });
     } catch (error) {
-      console.error('Whitelist removal error:', error);
+      logger.error('Whitelist removal error:', error);
       res.status(500).json({ error: 'Failed to remove from whitelist' });
     }
   });
@@ -193,7 +193,7 @@ module.exports = function(app, db, helpers) {
       db.prepare('UPDATE whitelist SET device_type = ? WHERE mac_address = ?').run('other', normalizedMac);
       res.json({ success: true, message: 'Device removed from tracking' });
     } catch (error) {
-      console.error('Untrack error:', error);
+      logger.error('Untrack error:', error);
       res.status(500).json({ error: 'Failed to untrack device' });
     }
   });
@@ -278,7 +278,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Person updated' });
     } catch (error) {
-      console.error('Person update error:', error);
+      logger.error('Person update error:', error);
       res.status(500).json({ error: 'Failed to update person' });
     }
   });
@@ -295,7 +295,7 @@ module.exports = function(app, db, helpers) {
       
       // Revoke each device from OPNsense
       for (const device of devices) {
-        console.log(`Revoking MAC ${device.mac_address} for deleted person ${id}`);
+        logger.info(`Revoking MAC ${device.mac_address} for deleted person ${id}`);
         await revokeMacInOPNsense(device.mac_address);
       }
       
@@ -325,7 +325,7 @@ module.exports = function(app, db, helpers) {
           // Add to invalidated set to destroy cookie sessions
           sessionIds.forEach(sid => {
             invalidatedSessionIds.add(sid);
-            console.log(`[Session] Added ${sid} to invalidated sessions (person deletion)`);
+            logger.debug(`[Session] Added ${sid} to invalidated sessions (person deletion)`);
           });
           invalidatedCount = sessionIds.length;
         }
@@ -343,7 +343,7 @@ module.exports = function(app, db, helpers) {
         invalidatedSessions: invalidatedCount
       });
     } catch (error) {
-      console.error('Person deletion error:', error);
+      logger.error('Person deletion error:', error);
       res.status(500).json({ error: 'Failed to delete person' });
     }
   });
@@ -362,7 +362,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'People merged' });
     } catch (error) {
-      console.error('People merge error:', error);
+      logger.error('People merge error:', error);
       res.status(500).json({ error: 'Failed to merge people' });
     }
   });
@@ -378,7 +378,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Device reassigned' });
     } catch (error) {
-      console.error('Device reassignment error:', error);
+      logger.error('Device reassignment error:', error);
       res.status(500).json({ error: 'Failed to reassign device' });
     }
   });
@@ -432,7 +432,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'MAC revoked from OPNsense' });
     } catch (error) {
-      console.error('OPNsense MAC revocation error:', error);
+      logger.error('OPNsense MAC revocation error:', error);
       res.status(500).json({ error: 'Failed to revoke MAC' });
     }
   });
@@ -449,7 +449,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Description updated' });
     } catch (error) {
-      console.error('OPNsense MAC update error:', error);
+      logger.error('OPNsense MAC update error:', error);
       res.status(500).json({ error: 'Failed to update MAC' });
     }
   });
