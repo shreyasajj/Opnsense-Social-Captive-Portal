@@ -82,7 +82,8 @@
 
       <!-- LOGIN OPTIONS (original) -->
       <div id="login-options" class="space-y-4">
-        <a id="google-btn" href="#" class="btn-google w-full py-3 px-4 rounded-xl text-white font-medium flex items-center justify-center gap-3 shadow-lg">
+        <a id="google-btn" href="#"
+          class="btn-google w-full py-3 px-4 rounded-xl text-white font-medium flex items-center justify-center gap-3 shadow-lg">
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff"/>
@@ -91,6 +92,15 @@
           </svg>
           Continue with Google
         </a>
+
+        <!-- ✅ NEW: only shown when Google sign-in is blocked -->
+        <div id="google-captive-warning" class="hidden mt-3 text-sm text-center">
+          <p class="text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <span class="font-medium">Google sign-in can’t be used in this Wi-Fi login window.</span><br>
+            <a id="google-learn-link" href="#" class="underline font-medium">Click here</a>
+            to open the portal in Safari/Chrome and sign in with Google.
+          </p>
+        </div>
 
         <div class="relative">
           <div class="absolute inset-0 flex items-center">
@@ -223,320 +233,316 @@
   </div>
 
   <script>
-    let supportConfig = {
-      adminName: null,
-      supportMessage: null
-    };
+  let supportConfig = {
+    adminName: null,
+    supportMessage: null
+  };
 
-    // ✅ NEW: portal config from server.js (/api/portal-config)
-    let portalConfig = {
-      portalBaseUrl: null
-    };
+  // ✅ NEW: portal config (driven by your /api/portal-config endpoint)
+  let portalConfig = {
+    portalBaseUrl: null
+  };
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const error = urlParams.get('error');
+  const urlParams = new URLSearchParams(window.location.search);
+  const error = urlParams.get('error');
 
-    const loginOptions = document.getElementById('login-options');
-    const phoneForm = document.getElementById('phone-form');
-    const successState = document.getElementById('success-state');
-    const errorState = document.getElementById('error-state');
-    const checkingState = document.getElementById('checking-state');
+  const loginOptions = document.getElementById('login-options');
+  const phoneForm = document.getElementById('phone-form');
+  const successState = document.getElementById('success-state');
+  const errorState = document.getElementById('error-state');
+  const checkingState = document.getElementById('checking-state');
 
-    // ✅ NEW state element
-    const openBrowserState = document.getElementById('open-browser-state');
-    const openSafariBtn = document.getElementById('open-safari-btn');
-    const openChromeBtn = document.getElementById('open-chrome-btn');
-    const copyLinkBtn = document.getElementById('copy-link-btn');
-    const openBrowserHint = document.getElementById('open-browser-hint');
+  const phoneBtn = document.getElementById('phone-btn');
+  const backBtn = document.getElementById('back-btn');
+  const submitPhone = document.getElementById('submit-phone');
+  const phoneInput = document.getElementById('phone-input');
+  const birthdateInput = document.getElementById('birthdate-input');
+  const phoneError = document.getElementById('phone-error');
+  const phoneLoading = document.getElementById('phone-loading');
+  const retryBtn = document.getElementById('retry-btn');
+  const errorMessage = document.getElementById('error-message');
 
-    const phoneBtn = document.getElementById('phone-btn');
-    const backBtn = document.getElementById('back-btn');
-    const submitPhone = document.getElementById('submit-phone');
-    const phoneInput = document.getElementById('phone-input');
-    const birthdateInput = document.getElementById('birthdate-input');
-    const phoneError = document.getElementById('phone-error');
-    const phoneLoading = document.getElementById('phone-loading');
-    const retryBtn = document.getElementById('retry-btn');
-    const errorMessage = document.getElementById('error-message');
+  // ✅ NEW: Google block UX elements
+  const googleBtn = document.getElementById('google-btn');
+  const googleCaptiveWarning = document.getElementById('google-captive-warning');
+  const googleLearnLink = document.getElementById('google-learn-link');
 
-    // Google OAuth link (unchanged)
-    document.getElementById('google-btn').href = '/auth/google';
+  // Google OAuth link (default)
+  googleBtn.href = '/auth/google';
 
-    const errorMessages = {
-      'oauth_failed': 'Google sign-in failed. Please try again.',
-      'not_authenticated': 'Session expired. Please try again.',
-      'missing_token': 'Invalid request. Please reconnect to WiFi.',
-      'invalid_token': 'Invalid or expired link. Please reconnect to WiFi.',
-      'token_used': 'This link has already been used. Please reconnect to WiFi.',
-      'token_expired': 'Link expired. Please reconnect to WiFi.',
-      'session_error': 'Session error. Please try again.'
-    };
+  const errorMessages = {
+    'oauth_failed': 'Google sign-in failed. Please try again.',
+    'not_authenticated': 'Session expired. Please try again.',
+    'missing_token': 'Invalid request. Please reconnect to WiFi.',
+    'invalid_token': 'Invalid or expired link. Please reconnect to WiFi.',
+    'token_used': 'This link has already been used. Please reconnect to WiFi.',
+    'token_expired': 'Link expired. Please reconnect to WiFi.',
+    'session_error': 'Session error. Please try again.'
+  };
 
-    if (error && errorMessages[error]) {
-      showError(errorMessages[error]);
+  if (error && errorMessages[error]) {
+    showError(errorMessages[error]);
+  }
+
+  function showState(state) {
+    loginOptions.classList.add('hidden');
+    phoneForm.classList.add('hidden');
+    successState.classList.add('hidden');
+    errorState.classList.add('hidden');
+    checkingState.classList.add('hidden');
+
+    switch (state) {
+      case 'login': loginOptions.classList.remove('hidden'); break;
+      case 'phone': phoneForm.classList.remove('hidden'); break;
+      case 'success': successState.classList.remove('hidden'); break;
+      case 'error': errorState.classList.remove('hidden'); break;
+      case 'checking': checkingState.classList.remove('hidden'); break;
     }
+  }
 
-    function showState(state) {
-      loginOptions.classList.add('hidden');
-      phoneForm.classList.add('hidden');
-      successState.classList.add('hidden');
-      errorState.classList.add('hidden');
-      checkingState.classList.add('hidden');
-      openBrowserState.classList.add('hidden'); // ✅ NEW
+  async function loadSupportConfig() {
+    try {
+      const res = await fetch('/api/support-config');
+      if (res.ok) supportConfig = await res.json();
+    } catch (e) {
+      console.warn('Could not load support config');
+    }
+  }
 
-      switch (state) {
-        case 'login': loginOptions.classList.remove('hidden'); break;
-        case 'phone': phoneForm.classList.remove('hidden'); break;
-        case 'success': successState.classList.remove('hidden'); break;
-        case 'error': errorState.classList.remove('hidden'); break;
-        case 'checking': checkingState.classList.remove('hidden'); break;
-        case 'open_browser': openBrowserState.classList.remove('hidden'); break; // ✅ NEW
+  async function loadPortalConfig() {
+    try {
+      const res = await fetch('/api/portal-config', { cache: 'no-store' });
+      if (res.ok) portalConfig = await res.json();
+    } catch (e) {
+      console.warn('Could not load portal config');
+    }
+  }
+
+  function showError(message) {
+    errorMessage.textContent = message;
+    showState('error');
+  }
+
+  function normalizeUrl(url) {
+    if (!url) return null;
+    if (!/^https?:\/\//i.test(url)) return `https://${url}`;
+    return url;
+  }
+
+  // ✅ Better iOS CNA / mini-browser detection
+  function isIOS() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent);
+  }
+
+  function isIOSSafari() {
+    const ua = navigator.userAgent;
+    return isIOS() && /Safari\//.test(ua) && !/CriOS\//.test(ua) && !/FxiOS\//.test(ua);
+  }
+
+  function isIOSChrome() { return /CriOS\//.test(navigator.userAgent); }
+  function isIOSFirefox() { return /FxiOS\//.test(navigator.userAgent); }
+
+  function isAndroid() {
+    return /android/i.test(navigator.userAgent);
+  }
+
+  function isAndroidWebView() {
+    const ua = navigator.userAgent;
+    return isAndroid() && (/\bwv\b/.test(ua) || /; wv\)/.test(ua) || /Version\/4\.0/.test(ua));
+  }
+
+  function isMiniCaptiveBrowser() {
+    const ua = (navigator.userAgent || '');
+
+    // iOS CNA often: AppleWebKit present, Safari token missing
+    const isiOSMini = isIOS()
+      && /AppleWebKit/i.test(ua)
+      && !isIOSSafari()
+      && !isIOSChrome()
+      && !isIOSFirefox();
+
+    const isAndroidMini = isAndroidWebView()
+      || /CaptivePortal|connectivitycheck|NetworkMonitor|WiFiLogin|WifiLogin/i.test(ua);
+
+    return isiOSMini || isAndroidMini;
+  }
+
+  // Chrome deep links (optional helper)
+  function buildChromeLink(targetUrl) {
+    try {
+      const u = new URL(targetUrl);
+
+      if (isAndroid()) {
+        const pathAndQuery = `${u.pathname}${u.search}${u.hash}`;
+        return `intent://${u.host}${pathAndQuery}#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;end`;
       }
-    }
 
-    async function loadSupportConfig() {
-      try {
-        const res = await fetch('/api/support-config');
-        if (res.ok) supportConfig = await res.json();
-      } catch (e) {
-        console.warn('Could not load support config');
+      if (isIOS()) {
+        const scheme = (u.protocol === 'https:') ? 'googlechromes:' : 'googlechrome:';
+        return `${scheme}//${u.host}${u.pathname}${u.search}${u.hash}`;
       }
-    }
 
-    // ✅ NEW: load portalBaseUrl from your endpoint that reads .env
-    async function loadPortalConfig() {
-      try {
-        const res = await fetch('/api/portal-config', { cache: 'no-store' });
-        if (res.ok) {
-          portalConfig = await res.json();
-        }
-      } catch (e) {
-        console.warn('Could not load portal config');
+      return targetUrl;
+    } catch {
+      return targetUrl;
+    }
+  }
+
+  // ✅ Block Google ONLY in mini captive browser; phone login stays available
+  function setupGoogleButtonForEnvironment() {
+    // Default: Google works
+    googleBtn.href = '/auth/google';
+    googleBtn.style.opacity = '1';
+    googleBtn.style.pointerEvents = 'auto';
+    googleBtn.setAttribute('aria-disabled', 'false');
+    if (googleCaptiveWarning) googleCaptiveWarning.classList.add('hidden');
+
+    if (!isMiniCaptiveBrowser()) return;
+
+    // Mini captive browser: block Google with message
+    googleBtn.href = '#';
+    googleBtn.style.opacity = '0.65';
+    googleBtn.setAttribute('aria-disabled', 'true');
+    if (googleCaptiveWarning) googleCaptiveWarning.classList.remove('hidden');
+
+    // Clicking Google just reveals the warning
+    googleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (googleCaptiveWarning) {
+        googleCaptiveWarning.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }
+    });
 
-    function showError(message) {
-      errorMessage.textContent = message;
-      showState('error');
-    }
+    // "Learn how" opens the portal URL (from env) in a real browser
+    if (googleLearnLink) {
+      googleLearnLink.addEventListener('click', (e) => {
+        e.preventDefault();
 
-    // ✅ NEW: detect iOS captive portal / Android webview captive portal
-    function isMiniCaptiveBrowser() {
-      const ua = (navigator.userAgent || '').toLowerCase();
+        const base = normalizeUrl(portalConfig.portalBaseUrl) || normalizeUrl(window.location.origin);
+        const target = base;
 
-      // iOS Captive Network Assistant (common patterns)
-      const isiOS = /iphone|ipad|ipod/.test(ua);
-      const isiOSCNA = isiOS && (
-        ua.includes('captivenetworksupport') ||
-        ua.includes('wispr') ||
-        ua.includes('captive') ||
-        ua.includes('com.apple.webapp') // sometimes present
-      );
+        // Attempt new tab/window (may be blocked in CNA)
+        try { window.open(target, '_blank', 'noopener,noreferrer'); } catch (err) {}
 
-      // Android captive portal / webview indicators
-      const isAndroid = ua.includes('android');
-      const isAndroidWebView = isAndroid && (
-        ua.includes(' wv') ||               // Android System WebView
-        ua.includes('version/4.0') ||       // old-ish webview signature
-        ua.includes('; wv)') ||
-        ua.includes('captiveportal') ||
-        ua.includes('connectivitycheck')
-      );
+        // Optional: attempt Chrome deep link (commented by default)
+        // window.location.href = buildChromeLink(target);
 
-      return isiOSCNA || isAndroidWebView;
-    }
-
-    function normalizeUrl(url) {
-      if (!url) return null;
-      try {
-        // If they pass only a host, force https
-        if (!/^https?:\/\//i.test(url)) return `https://${url}`;
-        return url;
-      } catch {
-        return url;
-      }
-    }
-
-    // ✅ NEW: build "open in chrome" deep-links
-    function buildChromeLink(targetUrl) {
-      try {
-        const u = new URL(targetUrl);
-
-        const ua = (navigator.userAgent || '').toLowerCase();
-        const isAndroid = ua.includes('android');
-        const isiOS = /iphone|ipad|ipod/i.test(ua);
-
-        // Android: intent://host/path#Intent;scheme=https;package=com.android.chrome;end
-        if (isAndroid) {
-          const pathAndQuery = `${u.pathname}${u.search}${u.hash}`;
-          return `intent://${u.host}${pathAndQuery}#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;end`;
-        }
-
-        // iOS Chrome supports googlechrome(s)://
-        if (isiOS) {
-          const scheme = (u.protocol === 'https:') ? 'googlechromes:' : 'googlechrome:';
-          return `${scheme}//${u.host}${u.pathname}${u.search}${u.hash}`;
-        }
-
-        // Desktop fallback: just use normal URL
-        return targetUrl;
-      } catch {
-        return targetUrl;
-      }
-    }
-
-    // ✅ NEW: show the “open in browser” UX and wire buttons to portalBaseUrl
-    function showOpenInBrowser() {
-      const base = normalizeUrl(portalConfig.portalBaseUrl) || normalizeUrl(window.location.origin);
-      const target = base; // you can also append a path if you want e.g. `${base}/`
-
-      // Make Safari/browser button a real anchor with target=_blank (important)
-      openSafariBtn.href = target;
-
-      copyLinkBtn.onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(target);
-          openBrowserHint.textContent = 'Copied! Paste into Safari/Chrome to continue.';
-          openBrowserHint.classList.remove('hidden');
-        } catch (e) {
-          openBrowserHint.textContent = `Copy this link: ${target}`;
-          openBrowserHint.classList.remove('hidden');
-        }
-      };
-
-      openChromeBtn.onclick = () => {
-        const chromeLink = buildChromeLink(target);
-
-        // Try chrome deep link (may fail if chrome not installed)
-        window.location.href = chromeLink;
-
-        // Also set a hint after a moment
+        // Fallback: navigate in-place (sometimes this exits CNA into Safari)
         setTimeout(() => {
-          openBrowserHint.textContent = 'If Chrome didn’t open, tap “Open in Safari / Browser” or copy the link.';
-          openBrowserHint.classList.remove('hidden');
-        }, 700);
-      };
-
-      // Optional: auto-attempt to open a new page (some captive windows block this, but it’s worth trying)
-      // If it fails, user still has buttons.
-      setTimeout(() => {
-        try { window.open(target, '_blank', 'noopener,noreferrer'); } catch (e) {}
-      }, 350);
-
-      showState('open_browser');
+          window.location.href = target;
+        }, 250);
+      });
     }
+  }
 
-    // ✅ Your existing routing logic, now with a “mini browser” gate
-    async function checkSession() {
-      showState('checking');
+  // ✅ Your existing state machine routing
+  async function checkSession() {
+    showState('checking');
 
-      try {
-        await loadSupportConfig();
-        await loadPortalConfig();
+    try {
+      await loadSupportConfig();
+      await loadPortalConfig();
+      setupGoogleButtonForEnvironment();
 
-        // If we’re in the mini captive browser, do NOT try Google OAuth here.
-        // Push them to Safari/Chrome first.
-        if (isMiniCaptiveBrowser()) {
-          showOpenInBrowser();
-          return;
-        }
+      const sessionResponse = await fetch('/api/session-info');
+      const sessionData = await sessionResponse.json();
 
-        const sessionResponse = await fetch('/api/session-info');
-        const sessionData = await sessionResponse.json();
-
-        if (!sessionData.hasPendingDevice) {
-          showState('login');
-          return;
-        }
-
-        switch (sessionData.state) {
-          case 'no_session':
-          case 'need_auth':
-            showState('login');
-            return;
-
-          case 'need_verification':
-            window.location.href = '/verify-identity.html';
-            return;
-
-          case 'pending_approval':
-            window.location.href = '/waiting.html';
-            return;
-
-          case 'approved':
-            window.location.href = '/device-select.html';
-            return;
-
-          case 'completed':
-            showState('success');
-            return;
-
-          default:
-            showState('login');
-            return;
-        }
-      } catch (err) {
-        console.error('Session check error:', err);
+      // If no MAC/pending device -> just show login UI
+      if (!sessionData.hasPendingDevice) {
         showState('login');
-      }
-    }
-
-    phoneBtn.addEventListener('click', () => showState('phone'));
-    backBtn.addEventListener('click', () => showState('login'));
-
-    submitPhone.addEventListener('click', async () => {
-      const phone = phoneInput.value.trim();
-      const birthdate = birthdateInput.value;
-
-      if (!phone || !birthdate) {
-        phoneError.textContent = 'Please enter both phone number and birthdate';
-        phoneError.classList.remove('hidden');
         return;
       }
 
-      phoneError.classList.add('hidden');
-      phoneLoading.classList.remove('hidden');
-      submitPhone.disabled = true;
+      switch (sessionData.state) {
+        case 'no_session':
+        case 'need_auth':
+          showState('login');
+          return;
 
-      try {
-        const response = await fetch('/api/auth/manual', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, birthdate })
-        });
+        case 'need_verification':
+          window.location.href = '/verify-identity.html';
+          return;
 
-        const data = await response.json();
+        case 'pending_approval':
+          window.location.href = '/waiting.html';
+          return;
 
-        if (response.ok && data.success) {
-          if (data.autoApproved) {
-            window.location.href = '/device-select.html';
-          } else {
-            window.location.href = '/waiting.html';
-          }
-        } else if (data.notFound) {
-          showError(
-            data.error ||
-            supportConfig.supportMessage ||
-            'No matching contact found. Please contact the network administrator.'
-          );
-        } else {
-          phoneError.textContent = data.error || 'Authentication failed';
-          phoneError.classList.remove('hidden');
-        }
-      } catch (err) {
-        phoneError.textContent = 'Connection error. Please try again.';
-        phoneError.classList.remove('hidden');
-      } finally {
-        phoneLoading.classList.add('hidden');
-        submitPhone.disabled = false;
+        case 'approved':
+          window.location.href = '/device-select.html';
+          return;
+
+        case 'completed':
+          showState('success');
+          return;
+
+        default:
+          showState('login');
+          return;
       }
-    });
+    } catch (err) {
+      console.error('Session check error:', err);
+      showState('login');
+    }
+  }
 
-    retryBtn.addEventListener('click', () => {
-      window.location.href = '/';
-    });
+  // UI wiring (unchanged)
+  phoneBtn.addEventListener('click', () => showState('phone'));
+  backBtn.addEventListener('click', () => showState('login'));
 
-    checkSession();
-  </script>
+  submitPhone.addEventListener('click', async () => {
+    const phone = phoneInput.value.trim();
+    const birthdate = birthdateInput.value;
+
+    if (!phone || !birthdate) {
+      phoneError.textContent = 'Please enter both phone number and birthdate';
+      phoneError.classList.remove('hidden');
+      return;
+    }
+
+    phoneError.classList.add('hidden');
+    phoneLoading.classList.remove('hidden');
+    submitPhone.disabled = true;
+
+    try {
+      const response = await fetch('/api/auth/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, birthdate })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        if (data.autoApproved) {
+          window.location.href = '/device-select.html';
+        } else {
+          window.location.href = '/waiting.html';
+        }
+      } else if (data.notFound) {
+        showError(
+          data.error ||
+          supportConfig.supportMessage ||
+          'No matching contact found. Please contact the network administrator.'
+        );
+      } else {
+        phoneError.textContent = data.error || 'Authentication failed';
+        phoneError.classList.remove('hidden');
+      }
+    } catch (err) {
+      phoneError.textContent = 'Connection error. Please try again.';
+      phoneError.classList.remove('hidden');
+    } finally {
+      phoneLoading.classList.add('hidden');
+      submitPhone.disabled = false;
+    }
+  });
+
+  retryBtn.addEventListener('click', () => {
+    window.location.href = '/';
+  });
+
+  // Start
+  checkSession();
+</script>
 </body>
 </html>
