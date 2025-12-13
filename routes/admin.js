@@ -1,3 +1,4 @@
+const logger = require('../lib/logger');
 /**
  * Admin Routes Module
  * Handles admin dashboard API endpoints
