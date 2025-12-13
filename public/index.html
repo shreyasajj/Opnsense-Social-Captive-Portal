@@ -28,6 +28,12 @@
     }
     .btn-phone:hover { opacity: 0.9; transform: translateY(-1px); }
 
+    .btn-secondary {
+      background: rgba(17, 24, 39, 0.08);
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover { background: rgba(17, 24, 39, 0.12); transform: translateY(-1px); }
+
     .input-field { transition: all 0.2s ease; }
     .input-field:focus {
       border-color: #667eea;
@@ -67,6 +73,7 @@
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
+
 <body class="gradient-bg flex items-center justify-center p-4">
   <div class="w-full max-w-md">
     <div id="main-card" class="card rounded-2xl shadow-2xl p-8">
@@ -78,6 +85,67 @@
         </div>
         <h1 class="text-2xl font-bold text-gray-800">WiFi Access Portal</h1>
         <p class="text-gray-500 mt-2">Sign in to connect to the network</p>
+      </div>
+
+      <!-- ✅ NEW: Embedded/captive browser warning (Google blocks OAuth here) -->
+      <div id="embedded-warning" class="hidden fade-in mb-6">
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5">
+              <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 9v3m0 4h.01M10.29 3.86l-8.17 14.14A2 2 0 003.83 21h16.34a2 2 0 001.71-3.01L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <div class="flex-1">
+              <p class="text-sm text-amber-900 font-semibold">Google sign-in won’t work in this Wi-Fi login window.</p>
+              <p class="text-sm text-amber-900/80 mt-1">
+                Tap <span class="font-semibold">Open in Safari/Chrome</span> to continue with Google,
+                or use <span class="font-semibold">Phone + Birthdate</span> below.
+              </p>
+
+              <div class="mt-4 space-y-2">
+                <a id="open-browser-btn"
+                   href="#"
+                   class="btn-secondary w-full py-3 px-4 rounded-xl text-gray-900 font-medium flex items-center justify-center gap-2"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M14 3h7v7m0-7L10 14m-4 7h12a2 2 0 002-2V9" />
+                  </svg>
+                  Open in Safari / Chrome
+                </a>
+
+                <button id="toggle-instructions"
+                        class="btn-secondary w-full py-3 px-4 rounded-xl text-gray-900 font-medium flex items-center justify-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+                  </svg>
+                  Show steps (iPhone/Android)
+                </button>
+
+                <div id="embedded-instructions" class="hidden text-sm text-amber-900/80 bg-white/60 rounded-xl p-3">
+                  <div class="font-semibold text-amber-900 mb-1">iPhone</div>
+                  <ol class="list-decimal ml-5 space-y-1">
+                    <li>Close this Wi-Fi popup.</li>
+                    <li>Open <span class="font-semibold">Safari</span>.</li>
+                    <li>Visit <span class="font-semibold">http://neverssl.com</span> (to trigger the portal again).</li>
+                    <li>Then tap <span class="font-semibold">Continue with Google</span>.</li>
+                  </ol>
+
+                  <div class="font-semibold text-amber-900 mt-3 mb-1">Android</div>
+                  <ol class="list-decimal ml-5 space-y-1">
+                    <li>Tap <span class="font-semibold">Open in Safari/Chrome</span> above (Chrome preferred).</li>
+                    <li>If it doesn’t open, open Chrome and visit <span class="font-semibold">http://neverssl.com</span>.</li>
+                  </ol>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="login-options" class="space-y-4">
@@ -161,7 +229,7 @@
           </div>
         </div>
         <h2 class="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
-          <p id="error-message" class="text-gray-600 mb-6 text-center"></p>
+        <p id="error-message" class="text-gray-600 mb-6 text-center"></p>
         <button id="retry-btn" class="btn-phone py-3 px-8 rounded-xl text-white font-medium shadow-lg">
           Try Again
         </button>
@@ -181,10 +249,8 @@
   </div>
 
   <script>
-    let supportConfig = {
-    adminName: null,
-    supportMessage: null
-  };
+    let supportConfig = { adminName: null, supportMessage: null };
+    let portalConfig = { portalBaseUrl: null };
 
     const urlParams = new URLSearchParams(window.location.search);
     const error = urlParams.get('error');
@@ -194,6 +260,7 @@
     const successState = document.getElementById('success-state');
     const errorState = document.getElementById('error-state');
     const checkingState = document.getElementById('checking-state');
+
     const phoneBtn = document.getElementById('phone-btn');
     const backBtn = document.getElementById('back-btn');
     const submitPhone = document.getElementById('submit-phone');
@@ -204,8 +271,16 @@
     const retryBtn = document.getElementById('retry-btn');
     const errorMessage = document.getElementById('error-message');
 
-    // Google OAuth link (MAC/IP already in session from handoff)
-    document.getElementById('google-btn').href = '/auth/google';
+    const googleBtn = document.getElementById('google-btn');
+
+    // ✅ NEW embedded UI bits
+    const embeddedWarning = document.getElementById('embedded-warning');
+    const openBrowserBtn = document.getElementById('open-browser-btn');
+    const toggleInstructionsBtn = document.getElementById('toggle-instructions');
+    const embeddedInstructions = document.getElementById('embedded-instructions');
+
+    // Google OAuth link (normal)
+    googleBtn.href = '/auth/google';
 
     const errorMessages = {
       'oauth_failed': 'Google sign-in failed. Please try again.',
@@ -240,12 +315,25 @@
     async function loadSupportConfig() {
       try {
         const res = await fetch('/api/support-config');
-        if (res.ok) {
-          supportConfig = await res.json();
-        }
+        if (res.ok) supportConfig = await res.json();
       } catch (e) {
         console.warn('Could not load support config');
       }
+    }
+
+    // ✅ NEW: load portal base URL from server (set via .env)
+    async function loadPortalConfig() {
+      try {
+        const res = await fetch('/api/portal-config');
+        if (res.ok) portalConfig = await res.json();
+      } catch (e) {
+        console.warn('Could not load portal config');
+      }
+
+      // Set the Open-in-browser link
+      // fallback to current origin if env not set
+      const base = portalConfig.portalBaseUrl || window.location.origin;
+      openBrowserBtn.href = base + '/';
     }
 
     function showError(message) {
@@ -253,7 +341,32 @@
       showState('error');
     }
 
-    // ✅ NEW: route based on server-provided state
+    // ✅ NEW: detect captive/embedded browsers (where Google blocks OAuth)
+    function isEmbeddedBrowser() {
+      const ua = navigator.userAgent || '';
+      return /CaptiveNetworkSupport|; wv\)|\bwv\b|FBAN|FBAV|Instagram/i.test(ua);
+    }
+
+    // ✅ NEW: apply embedded UX without breaking phone auth
+    function applyEmbeddedUx() {
+      if (!isEmbeddedBrowser()) return;
+
+      embeddedWarning.classList.remove('hidden');
+
+      // Instead of letting them hit Google OAuth and get blocked,
+      // intercept clicks and push them to open in Safari/Chrome.
+      googleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        // show warning (already visible) and scroll to it
+        embeddedWarning.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    toggleInstructionsBtn.addEventListener('click', () => {
+      embeddedInstructions.classList.toggle('hidden');
+    });
+
+    // ✅ existing: route based on server-provided state
     async function checkSession() {
       showState('checking');
 
@@ -261,37 +374,28 @@
         const sessionResponse = await fetch('/api/session-info');
         const sessionData = await sessionResponse.json();
 
-        // If no MAC/pending device at all -> just show login UI (they probably didn't come from captive portal)
         if (!sessionData.hasPendingDevice) {
           showState('login');
           return;
         }
 
-        // Route based on server state machine
         switch (sessionData.state) {
           case 'no_session':
           case 'need_auth':
             showState('login');
             return;
-
           case 'need_verification':
             window.location.href = '/verify-identity.html';
             return;
-
           case 'pending_approval':
             window.location.href = '/waiting.html';
             return;
-
           case 'approved':
             window.location.href = '/device-select.html';
             return;
-
           case 'completed':
-            // If completed, we can show local "connected" or redirect to /success.
-            // I’ll show the local success state so it doesn’t bounce.
             showState('success');
             return;
-
           default:
             showState('login');
             return;
@@ -329,7 +433,6 @@
         const data = await response.json();
 
         if (response.ok && data.success) {
-          // Let server state machine decide via /api/session-info, but we can fast-path here
           if (data.autoApproved) {
             window.location.href = '/device-select.html';
           } else {
@@ -358,7 +461,13 @@
       window.location.href = '/';
     });
 
-    checkSession();
+    // init
+    (async () => {
+      await loadSupportConfig();
+      await loadPortalConfig();
+      applyEmbeddedUx();
+      checkSession();
+    })();
   </script>
 </body>
 </html>

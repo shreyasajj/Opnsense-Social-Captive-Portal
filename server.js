@@ -141,6 +141,8 @@ app.use(session({
 // Trust proxy if behind reverse proxy (needed for secure cookies)
 if (isProduction) {
   app.set('trust proxy', 1);
+}else{
+  app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
 }
 
 // ============================================================================
@@ -2033,6 +2035,13 @@ app.post('/api/admin/purge-sessions', (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: 'Session purge failed' });
   }
+});
+
+
+app.get('/api/portal-config', (req, res) => {
+  res.json({
+    portalBaseUrl: process.env.SESSION_TIMEOUT_REDIRECT || null
+  });
 });
 
 // ============================================================================
