@@ -394,7 +394,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.CALLBACK_URL || 'http://localhost:3000/auth/google/callback'
+    callbackURL: process.env.CALLBACK_URL || 'http://localhost:3000/auth/google/callback',
+    state: true,
   },
   (accessToken, refreshToken, profile, done) => {
     const user = {
