@@ -1710,17 +1710,26 @@ async function completeAccessFlow(req, res) {
   
   // ENFORCE ONE PHONE PER PERSON
   // If user selected 'phone' as device type, check if person already has a tracked phone
+  // If so, demote the OLD phone to 'other' and let the NEW device be the phone
   if (deviceType === 'phone' && personId) {
     const existingPhone = db.prepare(`
-      SELECT mac_address FROM whitelist 
+      SELECT mac_address, user_name FROM whitelist 
       WHERE person_id = ? AND device_type = 'phone'
       LIMIT 1
     `).get(personId);
     
     if (existingPhone) {
-      logger.info(`Person ${personId} already has phone ${existingPhone.mac_address} - changing this device to 'other'`);
-      deviceType = 'other'; // Downgrade to 'other' so only one phone is tracked
-      req.session.deviceType = 'other';
+      logger.info(`Person ${personId} already has phone ${existingPhone.mac_address} - demoting old phone to 'other'`);
+      
+      // Demote the OLD phone to 'other'
+      db.prepare(`UPDATE whitelist SET device_type = 'other' WHERE mac_address = ?`)
+        .run(existingPhone.mac_address);
+      
+      // Also update the user record if exists
+      db.prepare(`UPDATE users SET device_type = 'other' WHERE mac_address = ?`)
+        .run(existingPhone.mac_address);
+      
+      logger.info(`Demoted old phone ${existingPhone.mac_address} to 'other', new phone will be ${mac}`);
     }
   }
   
