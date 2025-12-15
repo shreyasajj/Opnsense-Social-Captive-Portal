@@ -108,15 +108,6 @@
         </button>
       </div>
     </div>
-                class="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors">
-          Yes, This Is Me
-        </button>
-        <button type="button" id="notMeBtn"
-                class="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
-          This Isn't Me
-        </button>
-      </div>
-    </div>
 
     <!-- No Match Found - Enter phone/birthdate form -->
     <div id="noMatchForm" class="hidden">
@@ -168,7 +159,7 @@
         </svg>
       </div>
       <h2 class="text-xl font-bold text-gray-800 mb-2">Unable to Verify</h2>
-      <p class="text-gray-600 mb-6" id="errorStateMessage">Please contact the network administrator about getting WiFi access.</p>
+      <p class="text-gray-600 mb-6" id="errorStateMessage">Please talk to the administrator about getting WiFi access.</p>
       <button type="button" onclick="window.location.href='/'"
               class="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
         Go Back
@@ -187,6 +178,7 @@
       adminName: null,
       supportMessage: null
     };
+
     async function loadSupportConfig() {
       try {
         const res = await fetch('/api/support-config');
@@ -205,6 +197,7 @@
         'Please contact the network administrator about getting WiFi access.'
       );
     }
+
     async function loadSessionInfo() {
       try {
         const response = await fetch('/api/session-info');
@@ -439,7 +432,7 @@
       }
     });
 
-    /// Load config + session on page load
+    // Load config + session on page load
     (async () => {
       await loadSupportConfig();
       await loadSessionInfo();
