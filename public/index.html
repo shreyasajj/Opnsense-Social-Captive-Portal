@@ -297,6 +297,7 @@
     const copyLinkBtn = document.getElementById('copy-link-btn');
     const urlDisplay = document.getElementById('url-display');
 
+    // Error messages including blocked
     const errorMessages = {
       'oauth_failed': 'Google sign-in failed. Please try again.',
       'not_authenticated': 'Session expired. Please try again.',
@@ -304,7 +305,8 @@
       'invalid_token': 'Invalid or expired link. Please reconnect to WiFi.',
       'token_used': 'This link has already been used. Please reconnect to WiFi.',
       'token_expired': 'Link expired. Please reconnect to WiFi.',
-      'session_error': 'Session error. Please try again.'
+      'session_error': 'Session error. Please try again.',
+      'blocked': 'Your device has been blocked due to too many failed attempts. Please contact an administrator.'
     };
 
     if (error && errorMessages[error]) {
@@ -357,8 +359,8 @@
 
     async function init() {
       await loadPortalConfig();
-      await loadSupportConfig(); // Existing logic
-      checkSession(); // Existing logic
+      await loadSupportConfig();
+      checkSession();
     }
 
     async function loadPortalConfig() {
@@ -366,7 +368,7 @@
         const res = await fetch('/api/portal-config');
         if (res.ok) {
           const data = await res.json();
-          portalConfig.portalBaseUrl = data.portalBaseUrl; // comes from process.env.SESSION_TIMEOUT_REDIRECT
+          portalConfig.portalBaseUrl = data.portalBaseUrl;
         }
       } catch (e) {
         console.warn('Could not load portal config');
@@ -422,7 +424,7 @@
 
     // --- EVENT LISTENERS ---
 
-    // 1. Google Button Logic (The Fix)
+    // 1. Google Button Logic (External browser detection)
     googleBtn.addEventListener('click', (e) => {
       e.preventDefault();
 
@@ -431,7 +433,7 @@
         
         // Clean URL
         let baseUrl = portalConfig.portalBaseUrl.replace(/\/$/, "");
-        const targetUrl = `${baseUrl}/auth/google`;
+        const targetUrl = `${baseUrl}`;
         const os = getMobileOS();
 
         showState('external_prompt');
@@ -480,10 +482,10 @@
     // Navigation Buttons
     phoneBtn.addEventListener('click', () => showState('phone'));
     backBtn.addEventListener('click', () => showState('login'));
-    extBackBtn.addEventListener('click', () => showState('login')); // New back button
+    extBackBtn.addEventListener('click', () => showState('login'));
     retryBtn.addEventListener('click', () => window.location.href = '/');
 
-    // 3. Phone Submission Logic (Unchanged)
+    // 3. Phone Submission Logic
     submitPhone.addEventListener('click', async () => {
       const phone = phoneInput.value.trim();
       const birthdate = birthdateInput.value;
@@ -513,6 +515,9 @@
           } else {
             window.location.href = '/waiting.html';
           }
+        } else if (data.blocked) {
+          // MAC has been blocked
+          showError(data.error || 'Your device has been blocked due to too many failed attempts.');
         } else if (data.notFound) {
           showError(
             data.error ||

@@ -79,6 +79,12 @@ const SESSION_MAX_AGE_HOURS = parseInt(process.env.SESSION_MAX_AGE_HOURS) || 72;
 // Can be changed via /api/ha/config endpoint
 let DEVICE_OFFLINE_TIMEOUT = parseInt(process.env.DEVICE_OFFLINE_TIMEOUT) || 30;
 
+// Maximum failed authentication attempts before blocking a MAC
+const MAX_FAILED_ATTEMPTS = parseInt(process.env.MAX_FAILED_ATTEMPTS) || 3;
+
+// OPNsense MAC sync interval (ms) - how often to check for removed MACs
+const OPNSENSE_SYNC_INTERVAL = (parseInt(process.env.OPNSENSE_SYNC_INTERVAL) || 60) * 1000;
+
 // In-memory store for invalidated session IDs
 // When a person/device is deleted, their session IDs are added here
 // Express sessions with these IDs will be destroyed on next request
@@ -141,7 +147,7 @@ app.use(session({
 // Trust proxy if behind reverse proxy (needed for secure cookies)
 if (isProduction) {
   app.set('trust proxy', 1);
-}else{
+} else {
   app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
 }
 
@@ -177,12 +183,8 @@ app.use((req, res, next) => {
           delete req.session.oauthUser;
           delete req.session.verifiedUser;
           delete req.session.contactVerified;
-
           delete req.session.authMethod;
-
           delete req.session.existingPersonId;
-
-
         }
         logger.info(`[Session] Session regenerated, old session ${oldSessionId} invalidated`);
         next();
@@ -192,6 +194,96 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ============================================================================
+// MAC BLOCKING HELPERS
+// ============================================================================
+
+/**
+ * Check if a MAC address is blocked
+ */
+function isMacBlocked(mac) {
+  if (!mac) return false;
+  const normalizedMac = mac.toUpperCase();
+  const blocked = db.prepare('SELECT * FROM blocked_macs WHERE mac_address = ?').get(normalizedMac);
+  return !!blocked;
+}
+
+/**
+ * Record a failed authentication attempt
+ * Returns true if MAC should be blocked (exceeded MAX_FAILED_ATTEMPTS)
+ */
+function recordFailedAttempt(mac, attemptType, details = '') {
+  if (!mac) return false;
+  const normalizedMac = mac.toUpperCase();
+  
+  // Record the attempt
+  db.prepare(`
+    INSERT INTO failed_attempts (mac_address, attempt_type, details)
+    VALUES (?, ?, ?)
+  `).run(normalizedMac, attemptType, details);
+  
+  // Count recent attempts (last 24 hours)
+  const count = db.prepare(`
+    SELECT COUNT(*) as count FROM failed_attempts 
+    WHERE mac_address = ? 
+    AND created_at > datetime('now', '-24 hours')
+  `).get(normalizedMac);
+  
+  logger.info(`[Security] MAC ${normalizedMac} has ${count.count} failed attempts (max: ${MAX_FAILED_ATTEMPTS})`);
+  
+  if (count.count >= MAX_FAILED_ATTEMPTS) {
+    // Block the MAC
+    blockMac(normalizedMac, `Exceeded ${MAX_FAILED_ATTEMPTS} failed authentication attempts`);
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Block a MAC address
+ */
+function blockMac(mac, reason) {
+  if (!mac) return;
+  const normalizedMac = mac.toUpperCase();
+  
+  db.prepare(`
+    INSERT INTO blocked_macs (mac_address, reason)
+    VALUES (?, ?)
+    ON CONFLICT(mac_address) DO UPDATE SET reason = ?, blocked_at = CURRENT_TIMESTAMP
+  `).run(normalizedMac, reason, reason);
+  
+  logger.warn(`[Security] BLOCKED MAC ${normalizedMac}: ${reason}`);
+  
+  // Also invalidate any existing sessions for this MAC
+  const sessionIds = db.prepare('SELECT id FROM sessions WHERE mac_address = ?').all(normalizedMac).map(s => s.id);
+  if (sessionIds.length > 0) {
+    db.prepare(`UPDATE sessions SET disabled = 1 WHERE mac_address = ?`).run(normalizedMac);
+    db.prepare(`
+      UPDATE approval_requests SET disabled = 1, status = 'denied' 
+      WHERE session_id IN (${sessionIds.map(() => '?').join(',')})
+    `).run(...sessionIds);
+    
+    sessionIds.forEach(id => invalidatedSessionIds.add(id));
+  }
+}
+
+/**
+ * Get remaining attempts for a MAC
+ */
+function getRemainingAttempts(mac) {
+  if (!mac) return MAX_FAILED_ATTEMPTS;
+  const normalizedMac = mac.toUpperCase();
+  
+  const count = db.prepare(`
+    SELECT COUNT(*) as count FROM failed_attempts 
+    WHERE mac_address = ? 
+    AND created_at > datetime('now', '-24 hours')
+  `).get(normalizedMac);
+  
+  return Math.max(0, MAX_FAILED_ATTEMPTS - count.count);
+}
 
 // ============================================================================
 // SESSION STATE MACHINE
@@ -235,7 +327,7 @@ function getSessionState(req) {
   `).get(req.session.sessionId);
   
   if (!approval) {
-    logger.info(`[State] No approval record for session ${req.session.sessionId}`);
+    logger.debug(`[State] No approval record for session ${req.session.sessionId}`);
     return SessionState.NEED_AUTH;
   }
   
@@ -315,16 +407,12 @@ function stateMiddleware(req, res, next) {
     return next();
   }
 
-    // Skip special “end pages” so they aren’t redirected out from under the user
-
+  // Skip special "end pages" so they aren't redirected out from under the user
   if (req.path === '/auto-approved' || req.path === '/success') return next();
   
   // Skip for static assets
   if (req.path.match(/\.(js|css|png|jpg|ico|svg|woff|woff2)$/)) {
     return next();
-  }
-  if (req.path == "/auto-approved"){
-
   }
   
   // Skip for handoff (entry point)
@@ -333,7 +421,7 @@ function stateMiddleware(req, res, next) {
   }
   
   const state = getSessionState(req);
-  logger.debug(`Current state ${state}`)
+  logger.debug(`Current state ${state}`);
   const correctPage = getPageForState(state);
   
   // Debug logging
@@ -361,25 +449,13 @@ function stateMiddleware(req, res, next) {
   next();
 }
 
-
-// ✅ IMPORTANT CHANGE:
-
 // Apply state middleware BEFORE express.static (otherwise "/" gets served before redirects)
-
 app.use(stateMiddleware);
 
-
-
 app.use(passport.initialize());
-
 app.use(passport.session());
 
-
-
-// ✅ IMPORTANT CHANGE:
-
 // Serve static files, but DO NOT auto-serve index.html for "/"
-
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Passport serialization
@@ -440,7 +516,7 @@ async function pollArpTable() {
       }
     }
     
-    logger.info(`[ARP Poll] Checked ${macs.length} devices, ${Object.values(onlineStatus).filter(Boolean).length} online`);
+    logger.debug(`[ARP Poll] Checked ${macs.length} devices, ${Object.values(onlineStatus).filter(Boolean).length} online`);
   } catch (error) {
     logger.error('[ARP Poll] Error:', error.message);
   }
@@ -560,6 +636,12 @@ app.get('/handoff', (req, res) => {
   // Mark token as used (one-time use)
   tokenData.used = true;
   handoffTokens.delete(token);
+  
+  // Check if MAC is blocked
+  if (isMacBlocked(tokenData.mac)) {
+    logger.warn(`[Handoff] Blocked MAC attempted access: ${tokenData.mac}`);
+    return res.redirect('/?error=blocked');
+  }
   
   // Store MAC and IP in session securely
   req.session.pendingMac = tokenData.mac;
@@ -730,6 +812,12 @@ app.get('/auth/google/callback',
       return res.redirect(SESSION_TIMEOUT_REDIRECT);
     }
     
+    // Check if MAC is blocked
+    if (isMacBlocked(mac)) {
+      logger.warn(`[OAuth] Blocked MAC attempted OAuth: ${mac}`);
+      return res.redirect('/?error=blocked');
+    }
+    
     logger.debug(`Google OAuth callback: user=${userName}, oauth_id=${oauthId}, mac=${mac}`);
     
     // ========================================================================
@@ -842,17 +930,6 @@ app.get('/auth/google/callback',
         INSERT INTO approval_requests (session_id, user_name, device_type, mac_address, status, flow_completed)
         VALUES (?, ?, 'pending', ?, ?, 0)
       `).run(sessionId, userName, mac, isAutoApproved ? 'approved' : 'pending');
-      
-      // Notify HA for NEW approval requests only (if not auto-approved and person is verified)
-      // if (!isAutoApproved && personVerified) {
-      //   await notifyHomeAssistant('approval_request', {
-      //     session_id: sessionId,
-      //     user_name: userName,
-      //     device_type: 'pending',
-      //     mac_address: mac,
-      //     person_id: existingPersonId
-      //   });
-      // }
     }
     
     // ========================================================================
@@ -904,6 +981,10 @@ app.get('/auth/google/callback',
   }
 );
 
+// ============================================================================
+// SUPPORT CONFIG
+// ============================================================================
+
 const WIFI_ADMIN_NAME = process.env.WIFI_ADMIN_NAME || 'Admin';
 
 function wifiSupportMessage() {
@@ -918,6 +999,12 @@ app.get('/api/support-config', (req, res) => {
   res.json({
     adminName: WIFI_ADMIN_NAME,
     supportMessage: wifiSupportMessage()
+  });
+});
+
+app.get('/api/portal-config', (req, res) => {
+  res.json({
+    portalBaseUrl: process.env.SESSION_TIMEOUT_REDIRECT || null
   });
 });
 
@@ -940,15 +1027,35 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
     });
   }
 
+  // Check if MAC is blocked
+  if (isMacBlocked(mac)) {
+    return res.status(403).json({ 
+      error: 'Your device has been blocked. Please contact an administrator.',
+      blocked: true 
+    });
+  }
+
   try {
     // Search CardDAV for EXACT phone match (ignoring country code)
     const contact = await getContactWithPhoto(phone, birthdate);
 
     if (!contact) {
-      // Specific error message as requested
+      // Record failed attempt
+      const shouldBlock = recordFailedAttempt(mac, 'manual_auth', 
+        `No CardDAV match for phone=${normalizePhone(phone)}`);
+      
+      if (shouldBlock) {
+        return res.status(403).json({
+          error: 'Too many failed attempts. Your device has been blocked.',
+          blocked: true
+        });
+      }
+      
+      const remaining = getRemainingAttempts(mac);
       return res.status(401).json({ 
-        error: wifiSupportMessage(),
-        notFound: true
+        error: `${wifiSupportMessage()} ${remaining} attempt(s) remaining.`,
+        notFound: true,
+        attemptsRemaining: remaining
       });
     }
 
@@ -1027,17 +1134,6 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
         INSERT INTO approval_requests (session_id, user_name, device_type, mac_address, status, flow_completed)
         VALUES (?, ?, 'pending', ?, ?, 0)
       `).run(sessionId, contact.name, mac, isAutoApproved ? 'approved' : 'pending');
-
-      // Only notify Home Assistant if NOT auto-approved
-      // if (!isAutoApproved) {
-      //   await notifyHomeAssistant('approval_request', {
-      //     session_id: sessionId,
-      //     user_name: contact.name,
-      //     device_type: 'pending',
-      //     mac_address: mac,
-      //     person_id: existingPersonId
-      //   });
-      // }
     }
 
     // Store contact photo in session
@@ -1082,119 +1178,80 @@ app.post('/api/auth/manual', authLimiter, async (req, res) => {
 
 // Get current session info (for pre-filling forms securely)
 app.get('/api/session-info', (req, res) => {
-
   const state = getSessionState(req);
 
-
-
   const sessionInfo = {
-
     // Only true if they completed an auth step (not just because userName exists)
-
     authenticated: !!req.session.oauthUser || (!!req.session.userId && !!req.session.sessionId),
 
-
-
     authMethod: req.session.authMethod || null,
-
     userName: req.session.userName || req.session.oauthUser?.name || null,
-
     email: req.session.oauthUser?.email || null,
 
-
-
     sessionId: req.session.sessionId || null,
-
     userId: req.session.userId || null,
 
-
-
     hasPendingDevice: !!req.session.pendingMac,
-
     contactVerified: !!req.session.contactVerified,
 
-
-
     approvalStatus: null,
-
     flowCompleted: false,
-
     deviceType: req.session.deviceType || null,
-
     autoApproved: !!req.session.autoApproved,
 
-
-
-    // NEW: server computed state
-
+    // Server computed state
     state,
 
-
-
     cardDavContact: null
-
   };
 
-
-
   // Include CardDAV contact info for verification page
-
   if (req.session.oauthUser && req.session.cardDavContact) {
-
     const contact = req.session.cardDavContact;
-
     sessionInfo.cardDavContact = {
-
       name: contact.name,
-
       uid: contact.uid,
-
       phone: contact.phone,
-
       birthdate: contact.birthdate,
-
       hasPhoto: !!contact.photo,
-
       photo: contact.photo ? `data:${contact.photoMimeType || 'image/jpeg'};base64,${contact.photo}` : null,
-
       similarity: contact.similarity
-
     };
-
   }
-
-
 
   // Approval status from DB if session exists
-
   if (req.session.sessionId) {
-
     const approval = db
-
       .prepare(`SELECT status, device_type, flow_completed FROM approval_requests WHERE session_id = ?`)
-
       .get(req.session.sessionId);
 
-
-
     if (approval) {
-
       sessionInfo.approvalStatus = approval.status;
-
       sessionInfo.flowCompleted = approval.flow_completed === 1;
-
       sessionInfo.deviceType = approval.device_type;
-
       sessionInfo.autoApproved = approval.status === 'approved' && !!req.session.existingPersonId;
-
     }
-
   }
 
-
-
   res.json(sessionInfo);
+});
 
+// Get remaining authentication attempts for current session's MAC
+app.get('/api/remaining-attempts', (req, res) => {
+  const mac = req.session?.pendingMac;
+  
+  if (!mac) {
+    return res.json({ remaining: MAX_FAILED_ATTEMPTS });
+  }
+  
+  const remaining = getRemainingAttempts(mac);
+  const isBlocked = isMacBlocked(mac);
+  
+  res.json({ 
+    remaining,
+    blocked: isBlocked,
+    max: MAX_FAILED_ATTEMPTS
+  });
 });
 
 // ============================================================================
@@ -1203,7 +1260,7 @@ app.get('/api/session-info', (req, res) => {
 
 // Verify identity after Google OAuth - confirm CardDAV match or enter info
 app.post('/api/verify-identity', requireSession, async (req, res) => {
-  const { name, birthdate, confirmMatch, cardDavUid } = req.body;
+  const { name, phone, birthdate, confirmMatch, cardDavUid } = req.body;
   
   if (!req.session.oauthUser) {
     return res.status(401).json({ error: 'Not authenticated via Google' });
@@ -1213,20 +1270,67 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
   const mac = req.session.pendingMac;
   const cardDavContact = req.session.cardDavContact;
   
+  // Check if MAC is blocked
+  if (isMacBlocked(mac)) {
+    return res.status(403).json({ 
+      error: 'Your device has been blocked. Please contact an administrator.',
+      blocked: true 
+    });
+  }
+  
   try {
     // Use provided name or original OAuth name
     const finalName = name?.trim() || originalName;
     
-    // Always update the user's name to the final name
-    logger.debug(`[Verify] Setting display name to "${finalName}" (was "${originalName}")`);
-    req.session.userName = finalName;
-    db.prepare('UPDATE users SET name = ? WHERE id = ?').run(finalName, req.session.userId);
-    db.prepare('UPDATE approval_requests SET user_name = ? WHERE session_id = ?')
-      .run(finalName, req.session.sessionId);
-    
-    // If user confirmed the CardDAV match
+    // If user confirmed the CardDAV match, they MUST provide phone for verification
     if (confirmMatch && cardDavContact) {
       const contactPhone = cardDavContact.phone;
+      
+      // Phone verification is REQUIRED when confirming a match
+      if (!phone) {
+        return res.status(400).json({ 
+          error: 'Phone number is required to verify your identity',
+          phoneMismatch: true
+        });
+      }
+      
+      // Normalize phones for comparison
+      const normalizedInputPhone = normalizePhone(phone);
+      const normalizedContactPhone = normalizePhone(contactPhone);
+      
+      // Phone MUST match the contact's phone
+      if (!normalizedContactPhone || normalizedInputPhone !== normalizedContactPhone) {
+        logger.info(`[Verify] Phone mismatch for ${finalName}: input=${normalizedInputPhone}, contact=${normalizedContactPhone}`);
+        
+        // Record failed attempt
+        const shouldBlock = recordFailedAttempt(mac, 'phone_verification', 
+          `Phone mismatch: entered ${normalizedInputPhone}, expected ${normalizedContactPhone}`);
+        
+        if (shouldBlock) {
+          return res.status(403).json({
+            error: 'Too many failed attempts. Your device has been blocked.',
+            blocked: true
+          });
+        }
+        
+        const remaining = getRemainingAttempts(mac);
+        return res.status(400).json({
+          error: `Phone number does not match. ${remaining} attempt(s) remaining.`,
+          phoneMismatch: true,
+          attemptsRemaining: remaining
+        });
+      }
+      
+      // Phone verified! Continue with the flow
+      logger.info(`[Verify] Phone verified for ${finalName}`);
+      
+      // Update the user's name
+      logger.debug(`[Verify] Setting display name to "${finalName}" (was "${originalName}")`);
+      req.session.userName = finalName;
+      db.prepare('UPDATE users SET name = ? WHERE id = ?').run(finalName, req.session.userId);
+      db.prepare('UPDATE approval_requests SET user_name = ? WHERE session_id = ?')
+        .run(finalName, req.session.sessionId);
+      
       // Use provided birthdate if given, otherwise use contact's birthdate
       const contactBirthdate = birthdate || cardDavContact.birthdate;
       
@@ -1258,7 +1362,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
       let isAutoApproved = false;
       
       if (contactPhone) {
-        const personByPhone = db.prepare('SELECT * FROM people WHERE phone = ?').get(contactPhone);
+        const personByPhone = db.prepare('SELECT * FROM people WHERE phone = ?').get(normalizedContactPhone);
         if (personByPhone) {
           personId = personByPhone.id;
           req.session.existingPersonId = personId;
@@ -1296,17 +1400,6 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
       req.session.verifiedPhone = contactPhone;
       req.session.verifiedBirthdate = contactBirthdate;
       
-      // NOW that user is verified, send approval notification to HA (if not auto-approved)
-      // if (!isAutoApproved) {
-      //   await notifyHomeAssistant('approval_request', {
-      //     session_id: req.session.sessionId,
-      //     user_name: finalName,
-      //     device_type: 'pending',
-      //     mac_address: mac,
-      //     person_id: personId
-      //   });
-      // }
-      
       logger.debug(`[Verify] Identity verified for ${finalName}, autoApproved: ${isAutoApproved}`);
       
       return res.json({ 
@@ -1330,8 +1423,6 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
   }
 });
 
-
-
 // Manual verification with phone + birthdate (for OAuth users who didn't match CardDAV)
 app.post('/api/verify-manual', requireSession, async (req, res) => {
   const { name, phone, birthdate } = req.body;
@@ -1346,6 +1437,14 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
   
   const originalName = req.session.userName;
   const mac = req.session.pendingMac;
+  
+  // Check if MAC is blocked
+  if (isMacBlocked(mac)) {
+    return res.status(403).json({ 
+      error: 'Your device has been blocked. Please contact an administrator.',
+      blocked: true 
+    });
+  }
   
   try {
     const normalizedPhone = normalizePhone(phone);
@@ -1363,9 +1462,22 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
     const contact = await getContactWithPhoto(phone, birthdate);
     
     if (!contact) {
+      // Record failed attempt
+      const shouldBlock = recordFailedAttempt(mac, 'manual_verification', 
+        `No CardDAV match for phone=${normalizedPhone}`);
+      
+      if (shouldBlock) {
+        return res.status(403).json({
+          error: 'Too many failed attempts. Your device has been blocked.',
+          blocked: true
+        });
+      }
+      
+      const remaining = getRemainingAttempts(mac);
       return res.status(401).json({ 
-        error: wifiSupportMessage(),
-        notFound: true
+        error: `${wifiSupportMessage()} ${remaining} attempt(s) remaining.`,
+        notFound: true,
+        attemptsRemaining: remaining
       });
     }
     
@@ -1404,17 +1516,6 @@ app.post('/api/verify-manual', requireSession, async (req, res) => {
     req.session.contactVerified = true;
     req.session.verifiedPhone = normalizedPhone;
     req.session.verifiedBirthdate = birthdate;
-    
-    // NOW that user is verified, send approval notification to HA (if not auto-approved)
-    // if (!isAutoApproved) {
-    //   await notifyHomeAssistant('approval_request', {
-    //     session_id: req.session.sessionId,
-    //     user_name: finalName,
-    //     device_type: 'pending',
-    //     mac_address: mac,
-    //     person_id: personId
-    //   });
-    // }
     
     res.json({ 
       success: true, 
@@ -1665,15 +1766,6 @@ async function completeAccessFlow(req, res) {
   // Remove from opnsense_macs tracking table if it was there
   db.prepare('DELETE FROM opnsense_macs WHERE mac_address = ?').run(normalizedMac);
   
-  // Notify HA that flow is complete
-  // await notifyHomeAssistant('flow_completed', {
-  //   session_id: sessionId,
-  //   user_name: userName,
-  //   mac_address: normalizedMac,
-  //   device_type: deviceType,
-  //   person_id: personId
-  // });
-  
   logger.debug(`completeAccessFlow: SUCCESS - ${userName} (${normalizedMac}) granted access`);
   
   res.json({
@@ -1780,7 +1872,10 @@ require('./routes/admin')(app, db, {
   getPersonDevices,
   getPersonPresence,
   invalidatedSessionIds,
-  getDeviceOfflineTimeout
+  getDeviceOfflineTimeout,
+  recordFailedAttempt,
+  blockMac,
+  isMacBlocked
 });
 
 // ============================================================================
@@ -1829,70 +1924,128 @@ app.get('/api/session-timeout-redirect', (req, res) => {
 
 /**
  * Sync whitelisted MACs from OPNsense to local tracking
- * Any MAC in OPNsense that's not in our whitelist is tracked separately
- * so it shows up in admin panel for revocation
+ * - MACs in OPNsense but not in our whitelist → tracked as unknown (opnsense_macs)
+ * - MACs in our whitelist but NOT in OPNsense → removed from whitelist, sessions invalidated
+ * - Excludes MACs currently being registered (pending approval, not yet in OPNsense)
  */
 async function syncOPNsenseMacs() {
-  logger.info('Syncing whitelisted MACs from OPNsense...');
+  logger.info('[OPNsense Sync] Starting sync...');
   
   try {
     const result = await getWhitelistedMacs();
     
     if (result.skipped) {
-      logger.info('OPNsense not configured - skipping MAC sync');
+      logger.info('[OPNsense Sync] OPNsense not configured - skipping');
       return;
     }
     
-    const opnsenseMacs = result.macs;
-    logger.info(`Found ${opnsenseMacs.length} MACs in OPNsense whitelist`);
+    const opnsenseMacs = result.macs.map(m => m.toUpperCase());
+    const opnsenseMacSet = new Set(opnsenseMacs);
+    logger.info(`[OPNsense Sync] Found ${opnsenseMacs.length} MACs in OPNsense`);
     
     // Get all MACs in our local whitelist
-    const localMacs = db.prepare('SELECT mac_address FROM whitelist').all()
-      .map(row => row.mac_address.toUpperCase());
+    const localWhitelist = db.prepare('SELECT mac_address, person_id, user_name FROM whitelist').all();
+    const localMacSet = new Set(localWhitelist.map(row => row.mac_address.toUpperCase()));
     
-    const localMacSet = new Set(localMacs);
+    // Get MACs that are currently being registered (pending/approved but flow not completed)
+    // These should NOT be revoked just because they're not in OPNsense yet
+    const pendingMacs = db.prepare(`
+      SELECT DISTINCT mac_address FROM approval_requests 
+      WHERE status IN ('pending', 'approved') 
+      AND flow_completed = 0 
+      AND COALESCE(disabled, 0) = 0
+    `).all().map(r => r.mac_address?.toUpperCase()).filter(Boolean);
+    const pendingMacSet = new Set(pendingMacs);
     
-    // Find MACs in OPNsense but not in local whitelist DB
+    // -------------------------------------------------------------------------
+    // 1. Find MACs in OPNsense but NOT in our whitelist → track as unknown
+    // -------------------------------------------------------------------------
     let addedCount = 0;
     for (const mac of opnsenseMacs) {
-      const normalizedMac = mac.toUpperCase();
-      if (!localMacSet.has(normalizedMac)) {
-        logger.info(`Tracking unknown MAC ${normalizedMac} from OPNsense`);
-        
-        // Add to opnsense_macs table (NOT whitelist)
-        // This makes it available for revocation in admin panel
+      if (!localMacSet.has(mac) && !pendingMacSet.has(mac)) {
+        // Check if it's not a MAC currently being registered
         db.prepare(`
           INSERT INTO opnsense_macs (mac_address, description, first_seen, last_seen)
           VALUES (?, 'Unknown - synced from OPNsense', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
           ON CONFLICT(mac_address) DO UPDATE SET last_seen = CURRENT_TIMESTAMP
-        `).run(normalizedMac);
-        
+        `).run(mac);
         addedCount++;
-      } else {
+      } else if (localMacSet.has(mac)) {
         // MAC is in our whitelist - remove from opnsense_macs if it's there
-        db.prepare('DELETE FROM opnsense_macs WHERE mac_address = ?').run(normalizedMac);
+        db.prepare('DELETE FROM opnsense_macs WHERE mac_address = ?').run(mac);
       }
     }
     
-    // Clean up opnsense_macs entries that are no longer in OPNsense
-    const opnsenseMacSet = new Set(opnsenseMacs.map(m => m.toUpperCase()));
+    // -------------------------------------------------------------------------
+    // 2. Find MACs in our whitelist but NOT in OPNsense → revoke locally
+    //    (Someone removed them from OPNsense directly)
+    //    Skip MACs that are currently being registered
+    // -------------------------------------------------------------------------
+    let revokedCount = 0;
+    for (const entry of localWhitelist) {
+      const mac = entry.mac_address.toUpperCase();
+      
+      // Skip if in OPNsense or currently being registered
+      if (opnsenseMacSet.has(mac) || pendingMacSet.has(mac)) {
+        continue;
+      }
+      
+      logger.info(`[OPNsense Sync] MAC ${mac} was removed from OPNsense - revoking locally`);
+      
+      // Remove from whitelist
+      db.prepare('DELETE FROM whitelist WHERE mac_address = ?').run(mac);
+      
+      // Invalidate sessions for this MAC
+      const sessionIds = db.prepare('SELECT id FROM sessions WHERE mac_address = ?').all(mac).map(s => s.id);
+      if (sessionIds.length > 0) {
+        db.prepare(`UPDATE sessions SET disabled = 1 WHERE mac_address = ?`).run(mac);
+        db.prepare(`
+          UPDATE approval_requests SET disabled = 1 
+          WHERE session_id IN (${sessionIds.map(() => '?').join(',')})
+        `).run(...sessionIds);
+        
+        sessionIds.forEach(id => {
+          invalidatedSessionIds.add(id);
+          logger.debug(`[OPNsense Sync] Invalidated session ${id} for removed MAC ${mac}`);
+        });
+      }
+      
+      // Update users
+      db.prepare('UPDATE users SET approved = 0 WHERE mac_address = ?').run(mac);
+      
+      // Add to opnsense_macs for tracking (so it shows in "Unknown MACs" tab)
+      db.prepare(`
+        INSERT INTO opnsense_macs (mac_address, description, first_seen, last_seen)
+        VALUES (?, 'Removed from OPNsense - session invalidated', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(mac_address) DO UPDATE SET 
+          description = 'Removed from OPNsense - session invalidated',
+          last_seen = CURRENT_TIMESTAMP
+      `).run(mac);
+      
+      revokedCount++;
+    }
+    
+    // -------------------------------------------------------------------------
+    // 3. Clean up opnsense_macs entries that are no longer relevant
+    // -------------------------------------------------------------------------
     const trackedMacs = db.prepare('SELECT mac_address FROM opnsense_macs').all();
     for (const tracked of trackedMacs) {
-      if (!opnsenseMacSet.has(tracked.mac_address)) {
+      // If it's now in OPNsense AND in our whitelist, remove from tracking
+      if (opnsenseMacSet.has(tracked.mac_address) && localMacSet.has(tracked.mac_address)) {
         db.prepare('DELETE FROM opnsense_macs WHERE mac_address = ?').run(tracked.mac_address);
       }
     }
     
-    if (addedCount > 0) {
-      logger.info(`Added ${addedCount} unknown MACs from OPNsense to tracking`);
+    if (addedCount > 0 || revokedCount > 0) {
+      logger.info(`[OPNsense Sync] Added ${addedCount} unknown MACs, revoked ${revokedCount} removed MACs`);
     } else {
-      logger.info('All OPNsense MACs are already tracked');
+      logger.debug('[OPNsense Sync] No changes detected');
     }
   } catch (error) {
     if (error instanceof OPNsenseError) {
-      logger.error(`OPNsense sync error [${error.code}]: ${error.message}`);
+      logger.error(`[OPNsense Sync] Error [${error.code}]: ${error.message}`);
     } else {
-      logger.error('Error syncing OPNsense MACs:', error);
+      logger.error('[OPNsense Sync] Error:', error);
     }
   }
 }
@@ -2037,22 +2190,17 @@ app.post('/api/admin/purge-sessions', (req, res) => {
   }
 });
 
-
-app.get('/api/portal-config', (req, res) => {
-  res.json({
-    portalBaseUrl: process.env.SESSION_TIMEOUT_REDIRECT || null
-  });
-});
-
 // ============================================================================
 // START SERVER
 // ============================================================================
 
 app.listen(PORT, async () => {
-  console.log(`Captive Portal server running on port ${PORT}`);
-  console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
-  console.log(`Success redirect: ${SUCCESS_REDIRECT_URL || 'disabled (stays on success page)'}`);
-  console.log(`Session purge: every ${SESSION_PURGE_INTERVAL / 1000 / 60 / 60} hours (max age: ${SESSION_MAX_AGE_HOURS} hours)`);
+  logger.info(`Captive Portal server running on port ${PORT}`);
+  logger.info(`Admin panel: http://localhost:${PORT}/admin.html`);
+  logger.info(`Success redirect: ${SUCCESS_REDIRECT_URL || 'disabled (stays on success page)'}`);
+  logger.info(`Session purge: every ${SESSION_PURGE_INTERVAL / 1000 / 60 / 60} hours (max age: ${SESSION_MAX_AGE_HOURS} hours)`);
+  logger.info(`OPNsense sync: every ${OPNSENSE_SYNC_INTERVAL / 1000} seconds`);
+  logger.info(`Max failed auth attempts: ${MAX_FAILED_ATTEMPTS}`);
   
   // Sync OPNsense MACs on startup
   await syncOPNsenseMacs();
@@ -2062,6 +2210,9 @@ app.listen(PORT, async () => {
   
   // Set up periodic session purge
   setInterval(purgeOldSessions, SESSION_PURGE_INTERVAL);
+  
+  // Set up periodic OPNsense MAC sync
+  setInterval(syncOPNsenseMacs, OPNSENSE_SYNC_INTERVAL);
 });
 
 module.exports = app;

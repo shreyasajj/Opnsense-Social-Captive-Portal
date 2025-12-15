@@ -80,6 +80,12 @@ async function loadStats() {
     tabPendingCount.textContent = stats.pending;
     tabPeopleCount.textContent = stats.people || 0;
     tabUnknownCount.textContent = stats.unknownMacs || 0;
+    
+    // Update blocked count if element exists
+    const tabBlockedCount = document.getElementById('tab-blocked-count');
+    if (tabBlockedCount) {
+      tabBlockedCount.textContent = stats.blocked || 0;
+    }
   } catch (err) {
     console.error('Failed to load stats:', err);
   }
@@ -94,7 +100,8 @@ async function loadTabData() {
     authenticated: '/api/admin/authenticated',
     rejected: '/api/admin/rejected',
     tracked: '/api/admin/tracked-devices',
-    unknown: '/api/admin/opnsense-macs'
+    unknown: '/api/admin/opnsense-macs',
+    blocked: '/api/admin/blocked-macs'
   };
   
   try {
@@ -138,7 +145,8 @@ function renderTable(data) {
       authenticated: 'No authenticated users',
       rejected: 'No rejected users',
       tracked: 'No tracked devices',
-      unknown: 'No unknown MACs in OPNsense'
+      unknown: 'No unknown MACs in OPNsense',
+      blocked: 'No blocked devices'
     };
     showEmpty(messages[currentTab]);
     return;
@@ -165,6 +173,9 @@ function renderTable(data) {
       break;
     case 'unknown':
       renderUnknownTable(data);
+      break;
+    case 'blocked':
+      renderBlockedTable(data);
       break;
   }
 }
@@ -433,6 +444,44 @@ function renderUnknownTable(data) {
   `).join('');
 }
 
+function renderBlockedTable(data) {
+  tableHead.innerHTML = `
+    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+      <th class="px-4 py-3">MAC Address</th>
+      <th class="px-4 py-3">Reason</th>
+      <th class="px-4 py-3">Failed Attempts</th>
+      <th class="px-4 py-3">Blocked At</th>
+      <th class="px-4 py-3 text-right">Actions</th>
+    </tr>
+  `;
+  
+  tableBody.innerHTML = data.map(item => `
+    <tr class="table-row border-t bg-red-50">
+      <td class="px-4 py-4">
+        <code class="text-sm bg-red-100 px-2 py-1 rounded text-red-800">${escapeHtml(item.mac_address)}</code>
+      </td>
+      <td class="px-4 py-4">
+        <div class="text-sm text-gray-600">${escapeHtml(item.reason || 'Unknown')}</div>
+      </td>
+      <td class="px-4 py-4 text-sm text-gray-500">
+        <span class="bg-red-100 text-red-700 px-2 py-1 rounded">${item.attempt_count || 0} attempts</span>
+      </td>
+      <td class="px-4 py-4 text-sm text-gray-500">
+        ${formatDate(item.blocked_at)}
+      </td>
+      <td class="px-4 py-4 text-right">
+        <button data-action="unblock-mac" data-mac="${escapeHtml(item.mac_address)}"
+                class="action-btn inline-flex items-center gap-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg hover:bg-green-200">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Unblock
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
 // ============================================================================
 // ACTIONS
 // ============================================================================
@@ -587,6 +636,27 @@ function revokeUnknownMac(mac) {
   );
 }
 
+function unblockMac(mac) {
+  if (!mac) return;
+  
+  showModal(
+    'Unblock Device',
+    'Are you sure you want to unblock this device? They will be able to try authenticating again.',
+    async () => {
+      try {
+        const response = await fetch(`/api/admin/blocked-macs/${encodeURIComponent(mac)}`, { method: 'DELETE' });
+        if (response.ok) {
+          refreshData();
+        } else {
+          alert('Failed to unblock MAC');
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+  );
+}
+
 // ============================================================================
 // MODAL
 // ============================================================================
@@ -711,6 +781,9 @@ tableBody.addEventListener('click', (e) => {
       break;
     case 'revoke-unknown':
       revokeUnknownMac(mac);
+      break;
+    case 'unblock-mac':
+      unblockMac(mac);
       break;
   }
 });

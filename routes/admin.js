@@ -1,4 +1,3 @@
-const logger = require('../lib/logger');
 /**
  * Admin Routes Module
  * Handles admin dashboard API endpoints
@@ -10,7 +9,10 @@ module.exports = function(app, db, helpers) {
     getPersonDevices,
     getPersonPresence,
     invalidatedSessionIds,
-    getDeviceOfflineTimeout
+    getDeviceOfflineTimeout,
+    recordFailedAttempt,
+    blockMac,
+    isMacBlocked
   } = helpers;
 
   /**
@@ -118,7 +120,7 @@ module.exports = function(app, db, helpers) {
 
       res.json({ success: true, message: 'Request approved - waiting for user to complete device selection' });
     } catch (error) {
-      logger.error('Approval error:', error);
+      console.error('Approval error:', error);
       res.status(500).json({ error: 'Failed to approve request' });
     }
   });
@@ -128,18 +130,31 @@ module.exports = function(app, db, helpers) {
     const { sessionId } = req.params;
 
     try {
+      // Get the MAC address for this session
+      const session = db.prepare('SELECT mac_address FROM sessions WHERE id = ?').get(sessionId);
+      
       // Update approval request status
       db.prepare('UPDATE approval_requests SET status = ? WHERE session_id = ?').run('denied', sessionId);
 
       // Update session status
       db.prepare('UPDATE sessions SET status = ? WHERE id = ?').run('denied', sessionId);
 
+      // Record as a failed attempt (admin denial counts toward blocking)
+      if (session?.mac_address) {
+        const shouldBlock = recordFailedAttempt(session.mac_address, 'admin_denial', 
+          `Request denied by admin for session ${sessionId}`);
+        
+        if (shouldBlock) {
+          console.log(`[Admin] MAC ${session.mac_address} blocked after denial`);
+        }
+      }
+
       // NOTE: We no longer notify HA about approve/deny actions
       // HA just monitors the pending count via the approval_pending sensor
 
       res.json({ success: true, message: 'Request denied' });
     } catch (error) {
-      logger.error('Denial error:', error);
+      console.error('Denial error:', error);
       res.status(500).json({ error: 'Failed to deny request' });
     }
   });
@@ -171,7 +186,7 @@ module.exports = function(app, db, helpers) {
         // Add to invalidated set to destroy cookie sessions
         sessionIds.forEach(id => {
           invalidatedSessionIds.add(id);
-          logger.debug(`[Session] Added ${id} to invalidated sessions (whitelist removal)`);
+          console.log(`[Session] Added ${id} to invalidated sessions (whitelist removal)`);
         });
       }
       
@@ -180,7 +195,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Access revoked', invalidatedSessions: sessionIds.length });
     } catch (error) {
-      logger.error('Whitelist removal error:', error);
+      console.error('Whitelist removal error:', error);
       res.status(500).json({ error: 'Failed to remove from whitelist' });
     }
   });
@@ -194,7 +209,7 @@ module.exports = function(app, db, helpers) {
       db.prepare('UPDATE whitelist SET device_type = ? WHERE mac_address = ?').run('other', normalizedMac);
       res.json({ success: true, message: 'Device removed from tracking' });
     } catch (error) {
-      logger.error('Untrack error:', error);
+      console.error('Untrack error:', error);
       res.status(500).json({ error: 'Failed to untrack device' });
     }
   });
@@ -262,8 +277,10 @@ module.exports = function(app, db, helpers) {
       const params = [];
       
       if (name) {
-        updates.push('name = ?', 'normalized_name = ?');
-        params.push(name, normalizeName(name));
+        updates.push('name = ?');
+        updates.push('normalized_name = ?');
+        params.push(name);
+        params.push(normalizeName(name));
       }
       if (phone !== undefined) {
         updates.push('phone = ?');
@@ -275,11 +292,13 @@ module.exports = function(app, db, helpers) {
       }
       
       params.push(id);
-      db.prepare(`UPDATE people SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      const sql = `UPDATE people SET ${updates.join(', ')} WHERE id = ?`;
+      console.log(`[Admin] Updating person ${id}:`, sql, params);
+      db.prepare(sql).run(...params);
       
       res.json({ success: true, message: 'Person updated' });
     } catch (error) {
-      logger.error('Person update error:', error);
+      console.error('Person update error:', error);
       res.status(500).json({ error: 'Failed to update person' });
     }
   });
@@ -296,7 +315,7 @@ module.exports = function(app, db, helpers) {
       
       // Revoke each device from OPNsense
       for (const device of devices) {
-        logger.info(`Revoking MAC ${device.mac_address} for deleted person ${id}`);
+        console.log(`Revoking MAC ${device.mac_address} for deleted person ${id}`);
         await revokeMacInOPNsense(device.mac_address);
       }
       
@@ -326,7 +345,7 @@ module.exports = function(app, db, helpers) {
           // Add to invalidated set to destroy cookie sessions
           sessionIds.forEach(sid => {
             invalidatedSessionIds.add(sid);
-            logger.debug(`[Session] Added ${sid} to invalidated sessions (person deletion)`);
+            console.log(`[Session] Added ${sid} to invalidated sessions (person deletion)`);
           });
           invalidatedCount = sessionIds.length;
         }
@@ -344,7 +363,7 @@ module.exports = function(app, db, helpers) {
         invalidatedSessions: invalidatedCount
       });
     } catch (error) {
-      logger.error('Person deletion error:', error);
+      console.error('Person deletion error:', error);
       res.status(500).json({ error: 'Failed to delete person' });
     }
   });
@@ -363,7 +382,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'People merged' });
     } catch (error) {
-      logger.error('People merge error:', error);
+      console.error('People merge error:', error);
       res.status(500).json({ error: 'Failed to merge people' });
     }
   });
@@ -379,7 +398,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Device reassigned' });
     } catch (error) {
-      logger.error('Device reassignment error:', error);
+      console.error('Device reassignment error:', error);
       res.status(500).json({ error: 'Failed to reassign device' });
     }
   });
@@ -393,6 +412,7 @@ module.exports = function(app, db, helpers) {
     const peopleCount = db.prepare('SELECT COUNT(*) as count FROM people').get();
     const devices = db.prepare('SELECT COUNT(*) as count FROM whitelist').get();
     const unknownMacs = db.prepare('SELECT COUNT(*) as count FROM opnsense_macs').get();
+    const blockedMacs = db.prepare('SELECT COUNT(*) as count FROM blocked_macs').get();
 
     res.json({
       pending: pending.count,
@@ -401,7 +421,8 @@ module.exports = function(app, db, helpers) {
       tracked: tracked.count,
       people: peopleCount.count,
       devices: devices.count,
-      unknownMacs: unknownMacs.count
+      unknownMacs: unknownMacs.count,
+      blocked: blockedMacs.count
     });
   });
 
@@ -433,7 +454,7 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'MAC revoked from OPNsense' });
     } catch (error) {
-      logger.error('OPNsense MAC revocation error:', error);
+      console.error('OPNsense MAC revocation error:', error);
       res.status(500).json({ error: 'Failed to revoke MAC' });
     }
   });
@@ -450,8 +471,85 @@ module.exports = function(app, db, helpers) {
       
       res.json({ success: true, message: 'Description updated' });
     } catch (error) {
-      logger.error('OPNsense MAC update error:', error);
+      console.error('OPNsense MAC update error:', error);
       res.status(500).json({ error: 'Failed to update MAC' });
     }
+  });
+
+  // ============================================================================
+  // BLOCKED MAC ENDPOINTS
+  // ============================================================================
+
+  // Get all blocked MACs
+  app.get('/api/admin/blocked-macs', (req, res) => {
+    const blocked = db.prepare(`
+      SELECT bm.*, 
+             (SELECT COUNT(*) FROM failed_attempts WHERE mac_address = bm.mac_address) as attempt_count
+      FROM blocked_macs bm
+      ORDER BY bm.blocked_at DESC
+    `).all();
+
+    res.json(blocked);
+  });
+
+  // Unblock a MAC (allow them to try again)
+  app.delete('/api/admin/blocked-macs/:mac', (req, res) => {
+    const { mac } = req.params;
+    const normalizedMac = mac.toUpperCase();
+
+    try {
+      // Remove from blocked list
+      db.prepare('DELETE FROM blocked_macs WHERE mac_address = ?').run(normalizedMac);
+      
+      // Reset failed attempts
+      db.prepare('DELETE FROM failed_attempts WHERE mac_address = ?').run(normalizedMac);
+      
+      console.log(`[Admin] Unblocked MAC ${normalizedMac}`);
+      
+      res.json({ success: true, message: 'MAC unblocked - user can try again' });
+    } catch (error) {
+      console.error('Unblock MAC error:', error);
+      res.status(500).json({ error: 'Failed to unblock MAC' });
+    }
+  });
+
+  // Manually block a MAC
+  app.post('/api/admin/blocked-macs', (req, res) => {
+    const { mac, reason } = req.body;
+    
+    if (!mac) {
+      return res.status(400).json({ error: 'MAC address required' });
+    }
+    
+    const normalizedMac = mac.toUpperCase();
+
+    try {
+      db.prepare(`
+        INSERT INTO blocked_macs (mac_address, reason)
+        VALUES (?, ?)
+        ON CONFLICT(mac_address) DO UPDATE SET reason = ?, blocked_at = CURRENT_TIMESTAMP
+      `).run(normalizedMac, reason || 'Manually blocked by admin', reason || 'Manually blocked by admin');
+      
+      console.log(`[Admin] Manually blocked MAC ${normalizedMac}`);
+      
+      res.json({ success: true, message: 'MAC blocked' });
+    } catch (error) {
+      console.error('Block MAC error:', error);
+      res.status(500).json({ error: 'Failed to block MAC' });
+    }
+  });
+
+  // Get failed attempts for a MAC
+  app.get('/api/admin/failed-attempts/:mac', (req, res) => {
+    const { mac } = req.params;
+    const normalizedMac = mac.toUpperCase();
+
+    const attempts = db.prepare(`
+      SELECT * FROM failed_attempts 
+      WHERE mac_address = ?
+      ORDER BY created_at DESC
+    `).all(normalizedMac);
+
+    res.json(attempts);
   });
 };

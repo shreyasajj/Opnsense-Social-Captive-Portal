@@ -32,7 +32,7 @@
       <p class="text-gray-500 mt-4">Loading your information...</p>
     </div>
 
-    <!-- Contact Found - "Is this you?" prompt with editable fields -->
+    <!-- Contact Found - Verify with phone number -->
     <div id="matchFoundForm" class="hidden">
       <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
         <div class="flex items-start">
@@ -41,7 +41,7 @@
           </svg>
           <div>
             <p class="text-green-800 font-medium">Contact Found!</p>
-            <p class="text-green-700 text-sm">We found a contact that might be you.</p>
+            <p class="text-green-700 text-sm">Please verify your phone number to confirm your identity.</p>
           </div>
         </div>
       </div>
@@ -51,7 +51,17 @@
         <img id="contactPhoto" class="w-24 h-24 rounded-full mx-auto object-cover border-4 border-purple-200" />
       </div>
 
-      <!-- Editable Contact Info -->
+      <!-- Contact Info (read-only display) -->
+      <div class="bg-gray-50 rounded-lg p-3 mb-4">
+        <p class="text-sm text-gray-600">
+          <span class="font-medium">Contact:</span> <span id="matchContactName"></span>
+        </p>
+        <p class="text-sm text-gray-500 hidden" id="matchPhoneRow">
+          <span class="font-medium">Phone ending in:</span> <span id="matchContactPhoneHint"></span>
+        </p>
+      </div>
+
+      <!-- Verification fields -->
       <div class="space-y-4 mb-6">
         <!-- Display Name (editable) -->
         <div>
@@ -59,17 +69,16 @@
           <input type="text" id="matchDisplayName"
                  class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                  placeholder="Your name">
-          <p class="text-xs text-gray-500 mt-1">This is how your name will appear in the admin panel</p>
+          <p class="text-xs text-gray-500 mt-1">This is how your name will appear</p>
         </div>
 
-        <!-- Contact Info (read-only display) -->
-        <div class="bg-gray-50 rounded-lg p-3">
-          <p class="text-sm text-gray-600">
-            <span class="font-medium">Contact:</span> <span id="matchContactName"></span>
-          </p>
-          <p class="text-sm text-gray-600" id="matchPhoneRow">
-            <span class="font-medium">Phone:</span> <span id="matchContactPhone"></span>
-          </p>
+        <!-- Phone Number Verification (REQUIRED) -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number <span class="text-red-500">*</span></label>
+          <input type="tel" id="matchPhoneVerify" required
+                 class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                 placeholder="Enter your phone number">
+          <p class="text-xs text-gray-500 mt-1">Enter your phone number to verify your identity</p>
         </div>
 
         <!-- Birthdate (editable - can add if missing) -->
@@ -81,8 +90,24 @@
         </div>
       </div>
 
+      <!-- Attempts remaining warning -->
+      <div id="attemptsWarning" class="hidden mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <p class="text-yellow-800 text-sm">
+          <span class="font-medium">Warning:</span> You have <span id="attemptsRemaining">3</span> attempt(s) remaining.
+        </p>
+      </div>
+
       <div class="pt-4 space-y-3">
         <button type="button" id="yesMeBtn"
+                class="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors">
+          Verify & Continue
+        </button>
+        <button type="button" id="notMeBtn"
+                class="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
+          This Isn't Me
+        </button>
+      </div>
+    </div>
                 class="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors">
           Yes, This Is Me
         </button>
@@ -143,7 +168,7 @@
         </svg>
       </div>
       <h2 class="text-xl font-bold text-gray-800 mb-2">Unable to Verify</h2>
-        <p class="text-gray-600 mb-6" id="errorStateMessage">Please contact the network administrator about getting WiFi access.</p>
+      <p class="text-gray-600 mb-6" id="errorStateMessage">Please contact the network administrator about getting WiFi access.</p>
       <button type="button" onclick="window.location.href='/'"
               class="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
         Go Back
@@ -180,7 +205,6 @@
         'Please contact the network administrator about getting WiFi access.'
       );
     }
-
     async function loadSessionInfo() {
       try {
         const response = await fetch('/api/session-info');
@@ -207,20 +231,21 @@
 
     function showMatchFound() {
       document.getElementById('matchFoundForm').classList.remove('hidden');
-      document.getElementById('subtitle').textContent = 'We found a contact that might be you.';
+      document.getElementById('subtitle').textContent = 'Please verify your phone number.';
       
       const contact = sessionInfo.cardDavContact;
       
       // Populate editable display name field
-      // Prefer OAuth name if different from contact name (user might want to use their Google name)
       const displayName = sessionInfo.userName || contact.name || '';
       document.getElementById('matchDisplayName').value = displayName;
       
       // Show contact info (read-only for reference)
       document.getElementById('matchContactName').textContent = contact.name || 'Unknown';
       
+      // Show phone hint (last 4 digits) if contact has phone
       if (contact.phone) {
-        document.getElementById('matchContactPhone').textContent = formatPhone(contact.phone);
+        const lastFour = contact.phone.replace(/\D/g, '').slice(-4);
+        document.getElementById('matchContactPhoneHint').textContent = `****${lastFour}`;
         document.getElementById('matchPhoneRow').classList.remove('hidden');
       } else {
         document.getElementById('matchPhoneRow').classList.add('hidden');
@@ -241,6 +266,23 @@
           ? photoData 
           : `data:image/jpeg;base64,${photoData}`;
         document.getElementById('contactPhotoContainer').classList.remove('hidden');
+      }
+      
+      // Show remaining attempts if less than 3
+      updateAttemptsWarning();
+    }
+    
+    async function updateAttemptsWarning() {
+      try {
+        const response = await fetch('/api/remaining-attempts');
+        const data = await response.json();
+        
+        if (data.remaining < 3) {
+          document.getElementById('attemptsRemaining').textContent = data.remaining;
+          document.getElementById('attemptsWarning').classList.remove('hidden');
+        }
+      } catch (error) {
+        console.error('Error fetching attempts:', error);
       }
     }
 
@@ -292,16 +334,22 @@
       return phone;
     }
 
-    // Handle "Yes, This Is Me" button
+    // Handle "Verify & Continue" button
     document.getElementById('yesMeBtn').addEventListener('click', async () => {
       hideInlineError();
 
-      // Get the editable fields
+      // Get the fields
       const displayName = document.getElementById('matchDisplayName').value.trim();
+      const phoneVerify = document.getElementById('matchPhoneVerify').value.trim();
       const birthdate = document.getElementById('matchBirthdate').value;
 
       if (!displayName) {
         showInlineError('Please enter a display name');
+        return;
+      }
+      
+      if (!phoneVerify) {
+        showInlineError('Please enter your phone number to verify your identity');
         return;
       }
 
@@ -313,6 +361,7 @@
             confirmMatch: true,
             cardDavUid: sessionInfo.cardDavContact?.uid,
             name: displayName,
+            phone: phoneVerify,
             birthdate: birthdate || null
           })
         });
@@ -325,6 +374,13 @@
           } else {
             window.location.href = '/waiting.html';
           }
+        } else if (data.blocked) {
+          // MAC has been blocked - show error state
+          showErrorState(data.error || 'Your device has been blocked due to too many failed attempts. Please contact an administrator.');
+        } else if (data.phoneMismatch) {
+          // Phone didn't match - update attempts warning and show error
+          updateAttemptsWarning();
+          showInlineError(data.error || 'Phone number does not match. Please try again.');
         } else {
           showInlineError(data.error || 'Verification failed. Please try again.');
         }
@@ -370,10 +426,10 @@
             window.location.href = '/waiting.html';
           }
         } else if (data.notFound) {
-          // Show error state with red X (server is source of truth)
+          // Show error state with red X
           showErrorState(
             data.error || getSupportMessage('No matching contact found. Please contact the network administrator.')
-          );
+          );        
         } else {
           showInlineError(data.error || 'No matching contact found.');
         }
