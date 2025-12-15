@@ -8,6 +8,8 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const SqliteStore = require('better-sqlite3-session-store')(session);
+const Database = require('better-sqlite3');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bodyParser = require('body-parser');
@@ -128,13 +130,25 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again later.' }
 });
 
+// Session store using SQLite (persistent, production-ready)
+const sessionDbPath = process.env.SESSION_DB_PATH || path.join(__dirname, 'data', 'sessions.db');
+const sessionDb = new Database(sessionDbPath);
+logger.info(`[Session Store] Using SQLite session store at ${sessionDbPath}`);
+
 // Session configuration
 // NOTE: For OAuth to work, the session cookie must persist across redirects to Google
 const isProduction = process.env.NODE_ENV === 'production';
 app.use(session({
+  store: new SqliteStore({
+    client: sessionDb,
+    expired: {
+      clear: true,
+      intervalMs: 15 * 60 * 1000 // Clear expired sessions every 15 minutes
+    }
+  }),
   secret: process.env.SESSION_SECRET || 'change-this-secret-in-production',
-  resave: true, // Save session even if not modified (important for OAuth)
-  saveUninitialized: true, // Create session even if nothing stored yet
+  resave: false, // Don't save session if unmodified (SQLite store handles this)
+  saveUninitialized: false, // Don't create session until something stored
   rolling: true, // Reset expiration on each request
   cookie: {
     secure: isProduction, // Only require HTTPS in production
