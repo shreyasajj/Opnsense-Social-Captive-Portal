@@ -68,6 +68,10 @@ const SESSION_TIMEOUT_REDIRECT = process.env.SESSION_TIMEOUT_REDIRECT || '/';
 // Success page redirect URL (where to go after successful login)
 const SUCCESS_REDIRECT_URL = process.env.SUCCESS_REDIRECT_URL || null; // null means stay on success page
 
+// Success page auto-close configuration
+const SUCCESS_AUTO_CLOSE_ENABLED = process.env.SUCCESS_AUTO_CLOSE_ENABLED !== 'false'; // default true
+const SUCCESS_AUTO_CLOSE_TIMEOUT = parseInt(process.env.SUCCESS_AUTO_CLOSE_TIMEOUT) || 1500; // default 1500ms
+
 // ARP polling interval (ms)
 const ARP_POLL_INTERVAL = (parseInt(process.env.OPNSENSE_ARP_POLL_INTERVAL) || 60) * 1000;
 
@@ -2170,6 +2174,8 @@ app.get('/success', (req, res) => {
   const userName = req.session.userName || 'friend';
   const redirectUrl = SUCCESS_REDIRECT_URL;
   const shouldRedirect = !!SUCCESS_REDIRECT_URL;
+  const autoCloseEnabled = SUCCESS_AUTO_CLOSE_ENABLED && !shouldRedirect; // Don't auto-close if redirecting
+  const autoCloseTimeout = SUCCESS_AUTO_CLOSE_TIMEOUT;
   
   res.send(`
     <!DOCTYPE html>
@@ -2222,13 +2228,24 @@ app.get('/success', (req, res) => {
         <h1>You're Connected!</h1>
         <p>Welcome, ${userName}!</p>
         <p class="success-message">Your device has been successfully registered.</p>
-        ${shouldRedirect ? '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">Redirecting...</p>' : '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">You can close this window.</p>'}
+        ${shouldRedirect
+          ? '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">Redirecting...</p>'
+          : autoCloseEnabled
+            ? '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">This window will close automatically...</p>'
+            : '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">You can close this window.</p>'}
       </div>
-      ${shouldRedirect ? `
+      ${(shouldRedirect || autoCloseEnabled) ? `
       <script>
+        ${shouldRedirect ? `
         setTimeout(() => {
           window.location.href = '${redirectUrl}';
         }, 2000);
+        ` : `
+        // Auto-close after configured timeout so OS recognizes captive portal is complete
+        setTimeout(() => {
+          window.close();
+        }, ${autoCloseTimeout});
+        `}
       </script>
       ` : ''}
     </body>
@@ -2236,11 +2253,13 @@ app.get('/success', (req, res) => {
   `);
 });
 
-// API to get success redirect URL (for frontend if needed)
+// API to get success page configuration (for frontend)
 app.get('/api/success-config', (req, res) => {
   res.json({
     redirectUrl: SUCCESS_REDIRECT_URL,
-    autoRedirect: !!SUCCESS_REDIRECT_URL
+    autoRedirect: !!SUCCESS_REDIRECT_URL,
+    autoCloseEnabled: SUCCESS_AUTO_CLOSE_ENABLED,
+    autoCloseTimeout: SUCCESS_AUTO_CLOSE_TIMEOUT
   });
 });
 

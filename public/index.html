@@ -231,7 +231,7 @@
           </div>
         </div>
         <h2 class="text-2xl font-bold text-gray-800 mb-2">You're Connected!</h2>
-        <p class="text-gray-500">You can close this window.</p>
+        <p id="success-message" class="text-gray-500">You can close this window.</p>
       </div>
 
       <div id="error-state" class="hidden text-center fade-in">
@@ -272,6 +272,12 @@
     // Store portal config from API
     let portalConfig = {
       portalBaseUrl: null
+    };
+
+    // Store success page config from API
+    let successConfig = {
+      autoCloseEnabled: true,
+      autoCloseTimeout: 1500
     };
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -336,7 +342,19 @@
         case 'login': loginOptions.classList.remove('hidden'); break;
         case 'phone': phoneForm.classList.remove('hidden'); break;
         case 'external_prompt': externalBrowserState.classList.remove('hidden'); break;
-        case 'success': successState.classList.remove('hidden'); break;
+        case 'success':
+          successState.classList.remove('hidden');
+          // Update message based on auto-close setting
+          const successMessage = document.getElementById('success-message');
+          if (successConfig.autoCloseEnabled) {
+            successMessage.textContent = 'This window will close automatically...';
+            setTimeout(() => {
+              window.close();
+            }, successConfig.autoCloseTimeout);
+          } else {
+            successMessage.textContent = 'You can close this window.';
+          }
+          break;
         case 'error': errorState.classList.remove('hidden'); break;
         case 'checking': checkingState.classList.remove('hidden'); break;
       }
@@ -369,6 +387,7 @@
     async function init() {
       await loadPortalConfig();
       await loadSupportConfig();
+      await loadSuccessConfig();
       checkSession();
     }
 
@@ -392,6 +411,19 @@
         }
       } catch (e) {
         console.warn('Could not load support config');
+      }
+    }
+
+    async function loadSuccessConfig() {
+      try {
+        const res = await fetch('/api/success-config');
+        if (res.ok) {
+          const data = await res.json();
+          successConfig.autoCloseEnabled = data.autoCloseEnabled;
+          successConfig.autoCloseTimeout = data.autoCloseTimeout;
+        }
+      } catch (e) {
+        console.warn('Could not load success config');
       }
     }
 
