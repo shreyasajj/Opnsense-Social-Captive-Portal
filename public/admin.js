@@ -391,6 +391,14 @@ function renderPeopleTable(data) {
           </svg>
           View
         </button>
+        <button data-action="edit-person" data-person-id="${item.id}" data-person-name="${escapeHtml(item.name)}"
+                data-person-phone="${escapeHtml(item.phone || '')}" data-person-birthdate="${escapeHtml(item.birthdate || '')}"
+                class="action-btn inline-flex items-center gap-1 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 mr-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          Edit
+        </button>
         <button data-action="delete-person" data-person-id="${item.id}" data-person-name="${escapeHtml(item.name)}"
                 class="action-btn inline-flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -596,6 +604,43 @@ ${devicesHtml}`;
   }
 }
 
+function editPerson(personId, personName, personPhone, personBirthdate) {
+  // Get modal elements
+  const editModal = document.getElementById('edit-person-modal');
+  const editForm = document.getElementById('edit-person-form');
+  const nameInput = document.getElementById('edit-person-name');
+  const phoneInput = document.getElementById('edit-person-phone');
+  const birthdateInput = document.getElementById('edit-person-birthdate');
+  const cancelBtn = document.getElementById('edit-person-cancel');
+  const clearBirthdateBtn = document.getElementById('clear-birthdate-btn');
+
+  // Populate form
+  nameInput.value = personName;
+  phoneInput.value = personPhone;
+  birthdateInput.value = personBirthdate;
+
+  // Store person ID for submission
+  editForm.dataset.personId = personId;
+
+  // Clear birthdate button
+  clearBirthdateBtn.onclick = () => {
+    birthdateInput.value = '';
+  };
+
+  // Show modal
+  editModal.classList.remove('hidden');
+
+  // Cancel button
+  cancelBtn.onclick = () => {
+    editModal.classList.add('hidden');
+  };
+
+  // Close on overlay click
+  editModal.querySelector('.modal-overlay').onclick = () => {
+    editModal.classList.add('hidden');
+  };
+}
+
 function deletePerson(personId, personName) {
   showModal(
     'Delete Person',
@@ -753,13 +798,15 @@ function startAutoRefresh() {
 tableBody.addEventListener('click', (e) => {
   const button = e.target.closest('button[data-action]');
   if (!button) return;
-  
+
   const action = button.dataset.action;
   const sessionId = button.dataset.sessionId;
   const mac = button.dataset.mac;
   const personId = button.dataset.personId;
   const personName = button.dataset.personName;
-  
+  const personPhone = button.dataset.personPhone;
+  const personBirthdate = button.dataset.personBirthdate;
+
   switch (action) {
     case 'approve':
       approveRequest(sessionId);
@@ -776,6 +823,9 @@ tableBody.addEventListener('click', (e) => {
     case 'view-person':
       viewPerson(personId);
       break;
+    case 'edit-person':
+      editPerson(personId, personName, personPhone, personBirthdate);
+      break;
     case 'delete-person':
       deletePerson(personId, personName);
       break;
@@ -788,7 +838,219 @@ tableBody.addEventListener('click', (e) => {
   }
 });
 
+// Edit person form submission
+document.getElementById('edit-person-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const personId = e.target.dataset.personId;
+  const name = document.getElementById('edit-person-name').value.trim();
+  const phone = document.getElementById('edit-person-phone').value.trim();
+  const birthdate = document.getElementById('edit-person-birthdate').value;
+
+  if (!name) {
+    alert('Name is required');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/admin/people/${personId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        phone: phone || null,
+        birthdate: birthdate || null
+      })
+    });
+
+    if (response.ok) {
+      document.getElementById('edit-person-modal').classList.add('hidden');
+      refreshData();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to update person');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+// ============================================================================
+// AUTO-APPROVAL MODE
+// ============================================================================
+
+let autoApprovalInterval = null;
+
+async function loadAutoApprovalStatus() {
+  try {
+    const response = await fetch('/api/admin/auto-approval-status');
+    const status = await response.json();
+
+    updateAutoApprovalUI(status);
+  } catch (err) {
+    console.error('Failed to load auto-approval status:', err);
+  }
+}
+
+function updateAutoApprovalUI(status) {
+  const btn = document.getElementById('auto-approval-btn');
+  const statusText = document.getElementById('auto-approval-status');
+
+  if (status.enabled) {
+    btn.classList.remove('bg-gray-100', 'text-gray-700', 'hover:bg-gray-200');
+    btn.classList.add('bg-green-500', 'text-white', 'hover:bg-green-600');
+
+    const minutes = Math.floor(status.remainingSeconds / 60);
+    const seconds = status.remainingSeconds % 60;
+    statusText.textContent = `Auto-Approve ON (${minutes}:${seconds.toString().padStart(2, '0')})`;
+  } else {
+    btn.classList.remove('bg-green-500', 'text-white', 'hover:bg-green-600');
+    btn.classList.add('bg-gray-100', 'text-gray-700', 'hover:bg-gray-200');
+    statusText.textContent = 'Auto-Approve';
+  }
+}
+
+function formatTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Auto-approval button click
+document.getElementById('auto-approval-btn').addEventListener('click', async () => {
+  const modal = document.getElementById('auto-approval-modal');
+  const configDiv = document.getElementById('auto-approval-config');
+  const activeDiv = document.getElementById('auto-approval-active');
+
+  // Load current status
+  const response = await fetch('/api/admin/auto-approval-status');
+  const status = await response.json();
+
+  if (status.enabled) {
+    // Show active state
+    configDiv.classList.add('hidden');
+    activeDiv.classList.remove('hidden');
+
+    // Update countdown
+    document.getElementById('auto-approval-countdown').textContent = formatTime(status.remainingSeconds);
+
+    // Start countdown interval
+    if (autoApprovalInterval) clearInterval(autoApprovalInterval);
+    autoApprovalInterval = setInterval(async () => {
+      const res = await fetch('/api/admin/auto-approval-status');
+      const st = await res.json();
+
+      if (!st.enabled) {
+        clearInterval(autoApprovalInterval);
+        modal.classList.add('hidden');
+        loadAutoApprovalStatus();
+        return;
+      }
+
+      document.getElementById('auto-approval-countdown').textContent = formatTime(st.remainingSeconds);
+      updateAutoApprovalUI(st);
+    }, 1000);
+  } else {
+    // Show config state
+    configDiv.classList.remove('hidden');
+    activeDiv.classList.add('hidden');
+  }
+
+  modal.classList.remove('hidden');
+});
+
+// Cancel button
+document.getElementById('auto-approval-cancel').addEventListener('click', () => {
+  document.getElementById('auto-approval-modal').classList.add('hidden');
+  if (autoApprovalInterval) clearInterval(autoApprovalInterval);
+});
+
+// Close on overlay click
+document.getElementById('auto-approval-modal').querySelector('.modal-overlay').addEventListener('click', () => {
+  document.getElementById('auto-approval-modal').classList.add('hidden');
+  if (autoApprovalInterval) clearInterval(autoApprovalInterval);
+});
+
+// Enable auto-approval
+document.getElementById('auto-approval-enable').addEventListener('click', async () => {
+  const timeout = parseInt(document.getElementById('auto-approval-timeout').value);
+
+  try {
+    const response = await fetch('/api/admin/auto-approval/enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timeoutMinutes: timeout })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+
+      // Switch to active view
+      document.getElementById('auto-approval-config').classList.add('hidden');
+      document.getElementById('auto-approval-active').classList.remove('hidden');
+
+      // Load status and start countdown
+      await loadAutoApprovalStatus();
+      const statusRes = await fetch('/api/admin/auto-approval-status');
+      const status = await statusRes.json();
+
+      document.getElementById('auto-approval-countdown').textContent = formatTime(status.remainingSeconds);
+
+      // Start countdown interval
+      if (autoApprovalInterval) clearInterval(autoApprovalInterval);
+      autoApprovalInterval = setInterval(async () => {
+        const res = await fetch('/api/admin/auto-approval-status');
+        const st = await res.json();
+
+        if (!st.enabled) {
+          clearInterval(autoApprovalInterval);
+          document.getElementById('auto-approval-modal').classList.add('hidden');
+          loadAutoApprovalStatus();
+          return;
+        }
+
+        document.getElementById('auto-approval-countdown').textContent = formatTime(st.remainingSeconds);
+        updateAutoApprovalUI(st);
+      }, 1000);
+
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to enable auto-approval');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+// Disable auto-approval
+document.getElementById('auto-approval-disable').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/admin/auto-approval/disable', {
+      method: 'POST'
+    });
+
+    if (response.ok) {
+      document.getElementById('auto-approval-modal').classList.add('hidden');
+      if (autoApprovalInterval) clearInterval(autoApprovalInterval);
+      loadAutoApprovalStatus();
+    } else {
+      alert('Failed to disable auto-approval');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
 // Initial load
 loadStats();
 loadTabData();
+loadAutoApprovalStatus();
 startAutoRefresh();
+
+// Refresh auto-approval status every 5 seconds
+setInterval(loadAutoApprovalStatus, 5000);

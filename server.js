@@ -92,6 +92,14 @@ const OPNSENSE_SYNC_INTERVAL = (parseInt(process.env.OPNSENSE_SYNC_INTERVAL) || 
 // Express sessions with these IDs will be destroyed on next request
 const invalidatedSessionIds = new Set();
 
+// Auto-approval mode state
+let autoApprovalMode = {
+  enabled: false,
+  expiresAt: null,
+  timeoutMinutes: 60,
+  timer: null
+};
+
 // Clean up old invalidated session IDs periodically (they expire after 24 hours anyway)
 setInterval(() => {
   // We'll keep track of when sessions were invalidated in a Map if we need expiry
@@ -1889,8 +1897,74 @@ const setDeviceOfflineTimeout = (value) => {
   return false;
 };
 
+// Auto-approval mode API endpoints
+app.get('/api/admin/auto-approval-status', (req, res) => {
+  res.json({
+    enabled: autoApprovalMode.enabled,
+    expiresAt: autoApprovalMode.expiresAt,
+    timeoutMinutes: autoApprovalMode.timeoutMinutes,
+    remainingSeconds: autoApprovalMode.enabled && autoApprovalMode.expiresAt
+      ? Math.max(0, Math.floor((new Date(autoApprovalMode.expiresAt) - Date.now()) / 1000))
+      : 0
+  });
+});
+
+app.post('/api/admin/auto-approval/enable', (req, res) => {
+  const { timeoutMinutes } = req.body;
+
+  if (!timeoutMinutes || timeoutMinutes < 1 || timeoutMinutes > 1440) {
+    return res.status(400).json({ error: 'Timeout must be between 1 and 1440 minutes' });
+  }
+
+  // Clear existing timer if any
+  if (autoApprovalMode.timer) {
+    clearTimeout(autoApprovalMode.timer);
+  }
+
+  // Enable auto-approval mode
+  autoApprovalMode.enabled = true;
+  autoApprovalMode.timeoutMinutes = timeoutMinutes;
+  autoApprovalMode.expiresAt = new Date(Date.now() + timeoutMinutes * 60 * 1000).toISOString();
+
+  // Set timer to disable after timeout
+  autoApprovalMode.timer = setTimeout(() => {
+    autoApprovalMode.enabled = false;
+    autoApprovalMode.expiresAt = null;
+    autoApprovalMode.timer = null;
+    logger.info('[Auto-Approval] Mode automatically disabled after timeout');
+  }, timeoutMinutes * 60 * 1000);
+
+  logger.info(`[Auto-Approval] Mode enabled for ${timeoutMinutes} minutes (expires at ${autoApprovalMode.expiresAt})`);
+
+  res.json({
+    success: true,
+    enabled: true,
+    expiresAt: autoApprovalMode.expiresAt,
+    message: `Auto-approval enabled for ${timeoutMinutes} minute(s)`
+  });
+});
+
+app.post('/api/admin/auto-approval/disable', (req, res) => {
+  // Clear timer if any
+  if (autoApprovalMode.timer) {
+    clearTimeout(autoApprovalMode.timer);
+  }
+
+  autoApprovalMode.enabled = false;
+  autoApprovalMode.expiresAt = null;
+  autoApprovalMode.timer = null;
+
+  logger.info('[Auto-Approval] Mode manually disabled');
+
+  res.json({
+    success: true,
+    enabled: false,
+    message: 'Auto-approval disabled'
+  });
+});
+
 // Load admin routes from separate module
-require('./routes/admin')(app, db, { 
+require('./routes/admin')(app, db, {
   revokeMacInOPNsense,
   getPersonDevices,
   getPersonPresence,
@@ -1898,7 +1972,8 @@ require('./routes/admin')(app, db, {
   getDeviceOfflineTimeout,
   recordFailedAttempt,
   blockMac,
-  isMacBlocked
+  isMacBlocked,
+  autoApprovalMode
 });
 
 // ============================================================================
