@@ -1363,7 +1363,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
         if (!cardDavContact.birthdate) {
           logger.debug(`[Verify] Adding birthdate ${birthdate} to CardDAV contact ${cardDavContact.name}`);
           try {
-            await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate);
+            await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate, cardDavContact.href);
           } catch (cardDavError) {
             logger.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
             // Continue anyway - this is not critical
@@ -1371,7 +1371,7 @@ app.post('/api/verify-identity', requireSession, async (req, res) => {
         } else if (birthdate !== cardDavContact.birthdate) {
           logger.info(`[Verify] Updating birthdate in CardDAV from ${cardDavContact.birthdate} to ${birthdate}`);
           try {
-            await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate);
+            await updateCardDAVContactBirthdate(cardDavContact.uid, birthdate, cardDavContact.href);
           } catch (cardDavError) {
             logger.error('[Verify] Failed to update CardDAV birthdate:', cardDavError);
             // Continue anyway - this is not critical
@@ -1655,7 +1655,7 @@ app.post('/api/submit-contact-info', async (req, res) => {
       
       if (existingContact) {
         // Update existing contact's birthdate via CardDAV
-        await updateCardDAVContactBirthdate(existingContact.uid, birthdate);
+        await updateCardDAVContactBirthdate(existingContact.uid, birthdate, existingContact.href);
         req.session.contactUpdated = true;
       } else {
         // Create new contact in CardDAV
