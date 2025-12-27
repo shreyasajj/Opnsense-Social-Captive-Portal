@@ -2222,15 +2222,20 @@ app.get('/success', (req, res) => {
         <h1>You're Connected!</h1>
         <p>Welcome, ${userName}!</p>
         <p class="success-message">Your device has been successfully registered.</p>
-        ${shouldRedirect ? '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">Redirecting...</p>' : '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">You can close this window.</p>'}
+        ${shouldRedirect ? '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">Redirecting...</p>' : '<p style="margin-top: 15px; font-size: 0.875rem; color: #9ca3af;">This window will close automatically...</p>'}
       </div>
-      ${shouldRedirect ? `
       <script>
+        ${shouldRedirect ? `
         setTimeout(() => {
           window.location.href = '${redirectUrl}';
         }, 2000);
+        ` : `
+        // Auto-close after 1.5 seconds so OS recognizes captive portal is complete
+        setTimeout(() => {
+          window.close();
+        }, 1500);
+        `}
       </script>
-      ` : ''}
     </body>
     </html>
   `);

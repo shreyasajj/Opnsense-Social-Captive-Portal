@@ -336,7 +336,13 @@
         case 'login': loginOptions.classList.remove('hidden'); break;
         case 'phone': phoneForm.classList.remove('hidden'); break;
         case 'external_prompt': externalBrowserState.classList.remove('hidden'); break;
-        case 'success': successState.classList.remove('hidden'); break;
+        case 'success':
+          successState.classList.remove('hidden');
+          // Auto-close after 1.5 seconds so OS recognizes captive portal is complete
+          setTimeout(() => {
+            window.close();
+          }, 1500);
+          break;
         case 'error': errorState.classList.remove('hidden'); break;
         case 'checking': checkingState.classList.remove('hidden'); break;
       }
