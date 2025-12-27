@@ -4,7 +4,7 @@
  */
 
 module.exports = function(app, db, helpers) {
-  const { 
+  const {
     revokeMacInOPNsense,
     getPersonDevices,
     getPersonPresence,
@@ -12,7 +12,8 @@ module.exports = function(app, db, helpers) {
     getDeviceOfflineTimeout,
     recordFailedAttempt,
     blockMac,
-    isMacBlocked
+    isMacBlocked,
+    autoApprovalMode
   } = helpers;
 
   /**
@@ -36,6 +37,39 @@ module.exports = function(app, db, helpers) {
       WHERE ar.status = 'pending'
       ORDER BY ar.created_at DESC
     `).all();
+
+    // If auto-approval mode is enabled, automatically approve all pending requests
+    if (autoApprovalMode && autoApprovalMode.enabled && pending.length > 0) {
+      console.log(`[Auto-Approval] Automatically approving ${pending.length} pending request(s)`);
+
+      for (const request of pending) {
+        // Update approval request status
+        db.prepare('UPDATE approval_requests SET status = ? WHERE session_id = ?').run('approved', request.session_id);
+
+        // Update session status
+        db.prepare('UPDATE sessions SET status = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run('approved', request.session_id);
+
+        // Get user_id for this session
+        const session = db.prepare('SELECT user_id FROM sessions WHERE id = ?').get(request.session_id);
+
+        if (session) {
+          // Update user approved status
+          db.prepare('UPDATE users SET approved = 1 WHERE id = ?').run(session.user_id);
+        }
+      }
+
+      // Fetch the updated (now empty) pending list
+      const updatedPending = db.prepare(`
+        SELECT ar.*, s.ip_address, s.created_at as session_created
+        FROM approval_requests ar
+        LEFT JOIN sessions s ON ar.session_id = s.id
+        WHERE ar.status = 'pending'
+        ORDER BY ar.created_at DESC
+      `).all();
+
+      return res.json(updatedPending);
+    }
 
     res.json(pending);
   });
